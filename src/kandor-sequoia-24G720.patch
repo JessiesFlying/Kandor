@@ -1,0 +1,45 @@
+--- a/Kryptonite/Kryptonite/kern_patches.cpp	2026-07-01 16:56:10.492207035 +0200
++++ b/Kryptonite/Kryptonite/kern_patches.cpp	2026-07-01 16:57:09.177479170 +0200
+@@ -24,7 +24,14 @@
+     
+     KernelPatcher::LookupPatch patch;
+     
+-    if (Compatibility::isOlderKernel()) {
++    // macOS 15.7.7 (24G720): AppleGPUWrangler v8.1.10 dropped the IOThunderboltSwitchType3
++    // numeric gate. eGPU eligibility is now the bool PlatformSupportsExternalGPUs stored at
++    // [wrangler+0x178], computed as (platform_flags >> 12) & 1 at VA 0x44df. Force it to 1.
++    if (getKernelVersion() >= KernelVersion::Sequoia) {
++        const uint8_t find[] = {0xC1, 0xE8, 0x0C, 0x24, 0x01}; // shr eax,0xc ; and al,1
++        const uint8_t repl[] = {0xB0, 0x01, 0x90, 0x90, 0x90}; // mov al,1 ; nop ; nop ; nop
++        patch = {kext, find, repl, sizeof(find), 1};
++    } else if (Compatibility::isOlderKernel()) {
+         uint8_t tbType = 0x33;
+         if (NVRAMArgs::isThunderbolt1()) {
+             tbType = 0x31;
+@@ -63,6 +70,16 @@
+             patch = {kext, find, repl, sizeof(find), 1};
+             break;
+         }
++            
++        // macOS 15.7.7 (24G720): IOPCIFamily v2.9, IOPCIBridge::matchNubWithPropertyTable @0x9419.
++        // vtable offset [rax+0x2A8] unchanged since Big Sur; only the je rel32 shifted (0xB9 -> 0xB5).
++        // Convert je -> jmp so tunnelled devices always pass the match check.
++        case KernelVersion::Sequoia: {
++            const uint8_t find[] = {0xff, 0x90, 0xa8, 0x02, 0x00, 0x00, 0x48, 0x85, 0xc0, 0x0f, 0x84, 0xb5, 0x00, 0x00, 0x00};
++            const uint8_t repl[] = {0xff, 0x90, 0xa8, 0x02, 0x00, 0x00, 0x48, 0x85, 0xc0, 0x48, 0xe9, 0xb5, 0x00, 0x00, 0x00};
++            patch = {kext, find, repl, sizeof(find), 1};
++            break;
++        }
+             
+         default: {
+             const uint8_t find[] = {0xff, 0x90, 0xa8, 0x02, 0x00, 0x00, 0x48, 0x85, 0xc0, 0x0f, 0x84, 0xb9, 0x00, 0x00, 0x00};
+--- a/Kryptonite/Kryptonite/kern_start.cpp	2026-07-01 16:56:10.773208329 +0200
++++ b/Kryptonite/Kryptonite/kern_start.cpp	2026-07-01 16:57:09.177479170 +0200
+@@ -38,6 +38,6 @@
+     bootargBeta,
+     arrsize(bootargBeta),
+     KernelVersion::HighSierra,
+-    KernelVersion::BigSur,
++    KernelVersion::Sequoia,
+     start
+ };

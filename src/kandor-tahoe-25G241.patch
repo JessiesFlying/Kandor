@@ -1,0 +1,28 @@
+diff --git a/Kryptonite/Kryptonite/kern_patches.cpp b/Kryptonite/Kryptonite/kern_patches.cpp
+index 7e48a0a..2f7f201 100644
+--- a/Kryptonite/Kryptonite/kern_patches.cpp
++++ b/Kryptonite/Kryptonite/kern_patches.cpp
+@@ -74,7 +74,10 @@ void Patches::bypassIOPCITunnelCompatible(KernelPatcher &patcher, KernelPatcher:
+         // macOS 15.7.7 (24G720): IOPCIFamily v2.9, IOPCIBridge::matchNubWithPropertyTable @0x9419.
+         // vtable offset [rax+0x2A8] unchanged since Big Sur; only the je rel32 shifted (0xB9 -> 0xB5).
+         // Convert je -> jmp so tunnelled devices always pass the match check.
+-        case KernelVersion::Sequoia: {
++        // macOS 26 Tahoe (25G241): IOPCIFamily is still v2.9 and the 15-byte site is byte-identical
++        // to 24G720 (verified: exactly 1 hit of ...0F84B5... and 0 hits of the default ...0F84B9...).
++        case KernelVersion::Sequoia:
++        case KernelVersion::Tahoe: {
+             const uint8_t find[] = {0xff, 0x90, 0xa8, 0x02, 0x00, 0x00, 0x48, 0x85, 0xc0, 0x0f, 0x84, 0xb5, 0x00, 0x00, 0x00};
+             const uint8_t repl[] = {0xff, 0x90, 0xa8, 0x02, 0x00, 0x00, 0x48, 0x85, 0xc0, 0x48, 0xe9, 0xb5, 0x00, 0x00, 0x00};
+             patch = {kext, find, repl, sizeof(find), 1};
+diff --git a/Kryptonite/Kryptonite/kern_start.cpp b/Kryptonite/Kryptonite/kern_start.cpp
+index 3ae5e27..8eecb79 100644
+--- a/Kryptonite/Kryptonite/kern_start.cpp
++++ b/Kryptonite/Kryptonite/kern_start.cpp
+@@ -38,6 +38,6 @@ PluginConfiguration ADDPR(config) {
+     bootargBeta,
+     arrsize(bootargBeta),
+     KernelVersion::HighSierra,
+-    KernelVersion::Sequoia,
++    KernelVersion::Tahoe,
+     start
+ };
