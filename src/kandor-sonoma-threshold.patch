@@ -1,0 +1,23 @@
+Kandor – patch 3 (apply after kandor-sequoia-24G720.patch and kandor-tahoe-25G241.patch)
+Author: JessiesFlying, with assistance from Claude (Anthropic)
+SPDX-License-Identifier: GPL-3.0-only
+
+Use the newer AppleGPUWrangler patch from Sonoma (kernel 23) on, not only from Sequoia:
+Sonoma 14.8.9's AppleGPUWrangler no longer contains the older lookup pattern, only
+"shr eax,0xc ; and al,1". Monterey 12.7.6 and Ventura 13.7.8 still have the older pattern.
+Tested on Monterey, Ventura, Sonoma and Sequoia (Mac Pro 6,1, RX Vega 56 and RX 580).
+Binary equivalent in ne1rom's Sequoia build: file offset 0x529 0x18 -> 0x17 (Tahoe build: 0xffc).
+
+diff --git a/Kryptonite/Kryptonite/kern_patches.cpp b/Kryptonite/Kryptonite/kern_patches.cpp
+index 2f7f201..a7b8061 100644
+--- a/Kryptonite/Kryptonite/kern_patches.cpp
++++ b/Kryptonite/Kryptonite/kern_patches.cpp
+@@ -27,7 +27,7 @@ void Patches::unblockLegacyThunderbolt(KernelPatcher &patcher, KernelPatcher::Ke
+     // macOS 15.7.7 (24G720): AppleGPUWrangler v8.1.10 dropped the IOThunderboltSwitchType3
+     // numeric gate. eGPU eligibility is now the bool PlatformSupportsExternalGPUs stored at
+     // [wrangler+0x178], computed as (platform_flags >> 12) & 1 at VA 0x44df. Force it to 1.
+-    if (getKernelVersion() >= KernelVersion::Sequoia) {
++    if (getKernelVersion() >= KernelVersion::Sonoma) {
+         const uint8_t find[] = {0xC1, 0xE8, 0x0C, 0x24, 0x01}; // shr eax,0xc ; and al,1
+         const uint8_t repl[] = {0xB0, 0x01, 0x90, 0x90, 0x90}; // mov al,1 ; nop ; nop ; nop
+         patch = {kext, find, repl, sizeof(find), 1};

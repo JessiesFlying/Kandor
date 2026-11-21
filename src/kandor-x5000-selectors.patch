@@ -1,0 +1,179 @@
+Kandor – patch 5: user-client selector redirects for OCLP's old AMDRadeonX5000.kext
+Apply after patch 4. Author: JessiesFlying, with assistance from Claude (Anthropic)
+SPDX-License-Identifier: GPL-3.0-only
+
+Tahoe's AMDRadeonX5000.kext dropped ForceLegacyMode (0x102), so the AMDAccelSharedUserClient selectors after it moved
+down by one; OCLP's Vega userland on Tahoe calls getIOSurfaceInfo as 0x102 and RsrcAndXorByteFlag as 0x105 against the
+old kext. Routes IOAccelSharedUserClient2::externalMethod (IOAcceleratorFamily2) and, only for that class and only when
+the old kext is loaded (its ForceLegacyMode symbol exists), sends 0x102 with 1 scalar to 0x103 and 0x105 with a 12-byte
+structure to 0x106. Kernel 22+, krygpu=AMD; disable with -krynoredirect. Replaces the IOConnect part of the shim wrapper.
+Tested 21 Nov 2026 on Tahoe 26.7.2 (no failing 0x102/0x105 calls); no effect on Ventura to Sequoia, whose
+userland calls 0x102 without scalars and 0x105 with 4 bytes (tested there too).
+
+diff --git a/Kryptonite/Kryptonite/kern_hooks.cpp b/Kryptonite/Kryptonite/kern_hooks.cpp
+index cbcdb83..cd2b487 100644
+--- a/Kryptonite/Kryptonite/kern_hooks.cpp
++++ b/Kryptonite/Kryptonite/kern_hooks.cpp
+@@ -12,3 +12,37 @@ int FunctionHooks::thunderboltShouldSkipEnumeration() {
+     SYSLOG(moduleName, "Skipping thunderbolt enumeration...");
+     return 0;
+ }
++
++// Kandor (JessiesFlying, with assistance from Claude (Anthropic)), GPL-3.0-only:
++// Tahoe's AMDRadeonX5000.kext dropped ForceLegacyMode (selector 0x102) from AMDAccelSharedUserClient, so the
++// following selectors moved down by one. On Macs without AVX2, OCLP installs the old kext (0x102 = ForceLegacyMode,
++// 0x103 = getIOSurfaceInfo, 0x106 = RsrcAndXorByteFlag), but parts of its Tahoe userland (Metal, GL and video
++// drivers) call with Tahoe's numbers. Those calls fail with "count mismatch". Redirected here, only for that class
++// and only when the old kext is loaded (detected by its ForceLegacyMode symbol):
++//   0x102 with 1 scalar in             -> 0x103 getIOSurfaceInfo   (old 0x102 takes no scalars)
++//   0x105 with a 12-byte structure in  -> 0x106 RsrcAndXorByteFlag (old 0x105 AndXorByteFlag takes 4 bytes)
++// Calls in the old numbering are unaffected. Disable with -krynoredirect.
++mach_vm_address_t FunctionHooks::orgAccelSharedExternalMethod {0};
++bool FunctionHooks::oldX5000SharedUserClient {false};
++
++IOReturn FunctionHooks::accelSharedExternalMethod(IOUserClient *that, uint32_t selector, IOExternalMethodArguments *args,
++                                                  IOExternalMethodDispatch *dispatch, OSObject *target, void *reference) {
++    if (oldX5000SharedUserClient && that && args && (selector == 0x102 || selector == 0x105)) {
++        const OSMetaClass *meta = that->getMetaClass();
++        const char *name = meta ? meta->getClassName() : nullptr;
++        if (name && !strcmp(name, "AMDRadeonX5000_AMDAccelSharedUserClient")) {
++            uint32_t to = selector;
++            if (selector == 0x102 && args->scalarInputCount == 1) {
++                to = 0x103;
++            } else if (selector == 0x105 && args->scalarInputCount == 0 && args->structureInputSize == 12) {
++                to = 0x106;
++            }
++            if (to != selector) {
++                DBGLOG(moduleName, "redirect user-client selector 0x%x -> 0x%x", selector, to);
++                selector = to;
++                args->selector = to;
++            }
++        }
++    }
++    return FunctionCast(accelSharedExternalMethod, orgAccelSharedExternalMethod)(that, selector, args, dispatch, target, reference);
++}
+diff --git a/Kryptonite/Kryptonite/kern_hooks.hpp b/Kryptonite/Kryptonite/kern_hooks.hpp
+index 58809b5..9e86dd2 100644
+--- a/Kryptonite/Kryptonite/kern_hooks.hpp
++++ b/Kryptonite/Kryptonite/kern_hooks.hpp
+@@ -8,6 +8,9 @@
+ #ifndef kern_hooks_hpp
+ #define kern_hooks_hpp
+ 
++#include <Headers/kern_api.hpp>
++#include <IOKit/IOUserClient.h>
++
+ class FunctionHooks {
+     
+ private:
+@@ -16,6 +19,12 @@ private:
+ public:
+     static int thunderboltShouldSkipEnumeration();
+     
++    // User-client selector redirects for OCLP's old AMDRadeonX5000.kext (see kern_hooks.cpp)
++    static mach_vm_address_t orgAccelSharedExternalMethod;
++    static bool oldX5000SharedUserClient;
++    static IOReturn accelSharedExternalMethod(IOUserClient *that, uint32_t selector, IOExternalMethodArguments *args,
++                                              IOExternalMethodDispatch *dispatch, OSObject *target, void *reference);
++    
+ };
+ 
+ #endif /* kern_hooks_hpp */
+diff --git a/Kryptonite/Kryptonite/kern_patches.cpp b/Kryptonite/Kryptonite/kern_patches.cpp
+index 69439f1..10e91eb 100644
+--- a/Kryptonite/Kryptonite/kern_patches.cpp
++++ b/Kryptonite/Kryptonite/kern_patches.cpp
+@@ -135,6 +135,33 @@ void Patches::enlargeAGDCStructures(KernelPatcher &patcher, KernelPatcher::KextI
+     }
+ }
+ 
++// User-client selector redirects for OCLP's old AMDRadeonX5000.kext on newer macOS (see kern_hooks.cpp).
++// Kandor (JessiesFlying, with assistance from Claude (Anthropic)), GPL-3.0-only.
++bool Patches::redirectsEnabled() {
++    return NVRAMArgs::isAMD() && getKernelVersion() >= KernelVersion::Ventura && !checkKernelArgument("-krynoredirect");
++}
++
++void Patches::routeAccelSharedExternalMethod(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size) {
++    if (!redirectsEnabled()) {
++        return;
++    }
++    KernelPatcher::RouteRequest request("__ZN24IOAccelSharedUserClient214externalMethodEjP25IOExternalMethodArgumentsP24IOExternalMethodDispatchP8OSObjectPv",
++                                        FunctionHooks::accelSharedExternalMethod, FunctionHooks::orgAccelSharedExternalMethod);
++    patchApplicator.applyRoutingPatch(index, patcher, &request, address, size);
++}
++
++void Patches::detectOldX5000(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size) {
++    if (!redirectsEnabled()) {
++        return;
++    }
++    // only the old (Monterey-era) kext still has ForceLegacyMode; Tahoe's own kext does not
++    mach_vm_address_t old = patcher.solveSymbol(index, "__ZN39AMDRadeonX5000_AMDAccelSharedUserClient15ForceLegacyModeEv", address, size);
++    FunctionHooks::oldX5000SharedUserClient = old != 0 && FunctionHooks::orgAccelSharedExternalMethod != 0;
++    SYSLOG(moduleName, "AMDRadeonX5000: old user-client numbering %s, selector redirects %s",
++           old ? "yes" : "no", FunctionHooks::oldX5000SharedUserClient ? "active" : "off");
++    patcher.clearError();
++}
++
+ void Patches::updateMuxControlNVRAMVar(KernelPatcher &patcher, KernelPatcher::KextInfo *kext) {
+     const uint8_t find[] = {0x46, 0x41, 0x34, 0x43, 0x45, 0x32, 0x38, 0x44, 0x2d, 0x42, 0x36, 0x32, 0x46, 0x2d,
+         0x34, 0x43, 0x39, 0x39, 0x2d, 0x39, 0x43, 0x43, 0x33, 0x2d, 0x36, 0x38, 0x31,
+diff --git a/Kryptonite/Kryptonite/kern_patches.hpp b/Kryptonite/Kryptonite/kern_patches.hpp
+index 43f8a19..94b95b1 100644
+--- a/Kryptonite/Kryptonite/kern_patches.hpp
++++ b/Kryptonite/Kryptonite/kern_patches.hpp
+@@ -21,6 +21,9 @@ public:
+     static void bypassIOPCITunnelCompatible(KernelPatcher &patcher, KernelPatcher::KextInfo *kext);
+     static void updateMuxControlNVRAMVar(KernelPatcher &patcher, KernelPatcher::KextInfo *kext);
+     static void enlargeAGDCStructures(KernelPatcher &patcher, KernelPatcher::KextInfo *kext);
++    static bool redirectsEnabled();
++    static void routeAccelSharedExternalMethod(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size);
++    static void detectOldX5000(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size);
+     static void routeThunderboltEnumeration(KernelPatcher &patcher, size_t *index, mach_vm_address_t *address, size_t *size);
+ };
+ 
+diff --git a/Kryptonite/Kryptonite/kern_patchset.cpp b/Kryptonite/Kryptonite/kern_patchset.cpp
+index 88e44dd..e0a5b56 100644
+--- a/Kryptonite/Kryptonite/kern_patchset.cpp
++++ b/Kryptonite/Kryptonite/kern_patchset.cpp
+@@ -52,6 +52,14 @@ void PatchSet::processKext(KernelPatcher& patcher, size_t index, mach_vm_address
+         if (!strcmp(kextList[i].id, kextList[5].id)) {
+             Patches::enlargeAGDCStructures(patcher, &kextList[i]);
+         }
++        
++        if (!strcmp(kextList[i].id, kextList[6].id)) {
++            Patches::routeAccelSharedExternalMethod(patcher, index, address, size);
++        }
++        
++        if (!strcmp(kextList[i].id, kextList[7].id)) {
++            Patches::detectOldX5000(patcher, index, address, size);
++        }
+     }
+     
+     patcher.clearError();
+diff --git a/Kryptonite/Kryptonite/kern_targetkexts.hpp b/Kryptonite/Kryptonite/kern_targetkexts.hpp
+index bda18a3..041b566 100644
+--- a/Kryptonite/Kryptonite/kern_targetkexts.hpp
++++ b/Kryptonite/Kryptonite/kern_targetkexts.hpp
+@@ -17,7 +17,9 @@ static const char* targetKexts[] = {
+     "/System/Library/Extensions/AppleGraphicsControl.kext/Contents/PlugIns/AppleMuxControl.kext/Contents/MacOS/AppleMuxControl",
+     "/System/Library/Extensions/IOThunderboltFamily.kext/Contents/MacOS/IOThunderboltFamily",
+     "/System/Library/Extensions/IOPCIFamily.kext/IOPCIFamily",
+-    "/System/Library/Extensions/AMDSupport.kext/Contents/MacOS/AMDSupport"
++    "/System/Library/Extensions/AMDSupport.kext/Contents/MacOS/AMDSupport",
++    "/System/Library/Extensions/IOAcceleratorFamily2.kext/Contents/MacOS/IOAcceleratorFamily2",
++    "/System/Library/Extensions/AMDRadeonX5000.kext/Contents/MacOS/AMDRadeonX5000"
+ };
+ 
+ static KernelPatcher::KextInfo kextList[] {
+@@ -27,7 +29,10 @@ static KernelPatcher::KextInfo kextList[] {
+     {"com.apple.iokit.IOThunderboltFamily", &targetKexts[3], arraysize(targetKexts), {true}, {}, KernelPatcher::KextInfo::Unloaded},
+     {"com.apple.iokit.IOPCIFamily", &targetKexts[4], arraysize(targetKexts), {true}, {}, KernelPatcher::KextInfo::Unloaded},
+     // OCLP's Monterey AMDSupport on non-AVX2 Macs (kernel 22+): one path only
+-    {"com.apple.kext.AMDSupport", &targetKexts[5], 1, {true}, {}, KernelPatcher::KextInfo::Unloaded}
++    {"com.apple.kext.AMDSupport", &targetKexts[5], 1, {true}, {}, KernelPatcher::KextInfo::Unloaded},
++    // user-client selector redirects for OCLP's old Vega kext (kernel 22+): the hook, and the kext it serves
++    {"com.apple.iokit.IOAcceleratorFamily2", &targetKexts[6], 1, {true}, {}, KernelPatcher::KextInfo::Unloaded},
++    {"com.apple.kext.AMDRadeonX5000", &targetKexts[7], 1, {true}, {}, KernelPatcher::KextInfo::Unloaded}
+ };
+ 
+ static size_t kextListSize = arraysize(kextList);

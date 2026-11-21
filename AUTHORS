@@ -1,0 +1,20 @@
+# Who did which part (see the git history for details – merges are not squashed)
+
+mayankk2308, mac_editor   Kryptonite (upstream), Thunderbolt eGFX patches, IOPCITunnelCompatible bypass
+goalque                   NVIDIA eGFX support (upstream Kryptonite)
+rgov                      Ti82 Thunderbolt patches (adapted for Lilu by mac_editor)
+
+ne1rom, with assistance from Claude (Anthropic)
+                          Kryptonite for macOS Sequoia and Tahoe (src/kandor-sequoia-24G720.patch,
+                          src/kandor-tahoe-25G241.patch), Metal shim wrapper for Navi and the
+                          Navi (RX 6900 XT) Tahoe port (to be contributed)
+
+JessiesFlying, with assistance from Claude (Anthropic)
+                          Kryptonite for Ventura & Sonoma (src/kandor-sonoma-threshold.patch),
+                          AMDSupport AGDC fix as a Lilu patch (src/kandor-amdsupport-agdc.patch),
+                          AMDRadeonX5000 user-client selector redirects (src/kandor-x5000-selectors.patch),
+                          version 1.2.0 (src/kandor-version-1.2.0.patch), Vega shim analysis and wrapper
+                          (shim/kandor_shim.m), Kandor (kandor.sh, src/build-kext.sh, documentation)
+
+acidanthera               OpenCore, Lilu (not included)
+Dortania                  OpenCore Legacy Patcher (not included)

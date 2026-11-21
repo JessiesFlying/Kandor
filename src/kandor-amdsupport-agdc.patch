@@ -1,0 +1,114 @@
+Kandor – patch 4: the AMDSupport fix as a Lilu patch (replaced the on-disk patch of earlier versions)
+Apply after patches 1–3 (see README.md). Author: JessiesFlying, with assistance from Claude (Anthropic)
+SPDX-License-Identifier: GPL-3.0-only
+
+Patches OCLP's Monterey AMDSupport 4.0.8 in memory when it loads (kernel 22+, krygpu=AMD), with the same five
+find/replace pairs as the earlier on-disk patch (8 bytes, P3 matches twice). No system-volume change, no kmutil,
+survives OCLP re-patching and macOS updates. Disable with -krynoagdc. On Apple's native AMDSupport or an already
+patched one the patterns do not exist and nothing is changed.
+Tested 21 Nov 2026 on Sonoma 14.8.9, Sequoia 15.8.1 and Tahoe 26.7.2 (Mac Pro 6,1, RX Vega 56).
+
+diff --git a/Kryptonite/Kryptonite/kern_patches.cpp b/Kryptonite/Kryptonite/kern_patches.cpp
+index a7b8061..69439f1 100644
+--- a/Kryptonite/Kryptonite/kern_patches.cpp
++++ b/Kryptonite/Kryptonite/kern_patches.cpp
+@@ -94,6 +94,47 @@ void Patches::bypassIOPCITunnelCompatible(KernelPatcher &patcher, KernelPatcher:
+     patchApplicator.applyLookupPatch(patcher, &patch);
+ }
+ 
++// From macOS 13 Ventura on, displaypolicyd sends three AGDC structures with up to 32 entries instead of 16:
++// the scanout resource config (selector 0x978) as 0x8004 bytes, and the resource configuration set for
++// test/commit (0x1800/0x1801) as 0x7b8c bytes. OCLP installs the Monterey 12.5 AMDSupport 4.0.8 on Macs
++// without AVX2; it accepts only 0x4004 / 0x3dcc and <= 16 entries and returns kIOReturnBadArgument, so
++// displaypolicyd never brings an eGPU display online. These patches raise the sizes and limits (8 bytes,
++// 5 places). The loops only walk the caller's buffer. The patterns exist only in that 4.0.8 build; on
++// Apple's native driver, or an already patched one, nothing matches and nothing is changed.
++// Disable with -krynoagdc.
++void Patches::enlargeAGDCStructures(KernelPatcher &patcher, KernelPatcher::KextInfo *kext) {
++    if (!NVRAMArgs::isAMD() || getKernelVersion() < KernelVersion::Ventura || checkKernelArgument("-krynoagdc")) {
++        return;
++    }
++    
++    // getScanoutResourceConfig: size 0x4004 -> 0x8004
++    const uint8_t find1[] = {0xb8, 0x04, 0x40, 0x00, 0x00, 0x48, 0x3b, 0x45, 0xe0};
++    const uint8_t repl1[] = {0xb8, 0x04, 0x80, 0x00, 0x00, 0x48, 0x3b, 0x45, 0xe0};
++    // getScanoutResourceConfig: entries <= 16 -> <= 32
++    const uint8_t find2[] = {0x83, 0x7d, 0xd4, 0x10, 0x0f, 0x86, 0x0c};
++    const uint8_t repl2[] = {0x83, 0x7d, 0xd4, 0x20, 0x0f, 0x86, 0x0c};
++    // testConfiguration + commitConfiguration: size 0x3dcc -> 0x7b8c (2 matches)
++    const uint8_t find3[] = {0xb8, 0xcc, 0x3d, 0x00, 0x00, 0x48, 0x3b, 0x45, 0xe0, 0x0f, 0x84};
++    const uint8_t repl3[] = {0xb8, 0x8c, 0x7b, 0x00, 0x00, 0x48, 0x3b, 0x45, 0xe0, 0x0f, 0x84};
++    // testConfiguration: entries <= 16 -> <= 32
++    const uint8_t find4[] = {0x83, 0x7d, 0xd8, 0x10, 0x0f, 0x86};
++    const uint8_t repl4[] = {0x83, 0x7d, 0xd8, 0x20, 0x0f, 0x86};
++    // commitConfiguration: entries <= 16 -> <= 32
++    const uint8_t find5[] = {0x0f, 0xb6, 0x45, 0xdb, 0x83, 0xf8, 0x10};
++    const uint8_t repl5[] = {0x0f, 0xb6, 0x45, 0xdb, 0x83, 0xf8, 0x20};
++    
++    KernelPatcher::LookupPatch patches[] = {
++        {kext, find1, repl1, sizeof(find1), 1},
++        {kext, find2, repl2, sizeof(find2), 1},
++        {kext, find3, repl3, sizeof(find3), 2},
++        {kext, find4, repl4, sizeof(find4), 1},
++        {kext, find5, repl5, sizeof(find5), 1},
++    };
++    for (size_t i = 0; i < arrsize(patches); i++) {
++        patchApplicator.applyLookupPatch(patcher, &patches[i]);
++    }
++}
++
+ void Patches::updateMuxControlNVRAMVar(KernelPatcher &patcher, KernelPatcher::KextInfo *kext) {
+     const uint8_t find[] = {0x46, 0x41, 0x34, 0x43, 0x45, 0x32, 0x38, 0x44, 0x2d, 0x42, 0x36, 0x32, 0x46, 0x2d,
+         0x34, 0x43, 0x39, 0x39, 0x2d, 0x39, 0x43, 0x43, 0x33, 0x2d, 0x36, 0x38, 0x31,
+diff --git a/Kryptonite/Kryptonite/kern_patches.hpp b/Kryptonite/Kryptonite/kern_patches.hpp
+index ac6897b..43f8a19 100644
+--- a/Kryptonite/Kryptonite/kern_patches.hpp
++++ b/Kryptonite/Kryptonite/kern_patches.hpp
+@@ -20,6 +20,7 @@ public:
+     static void bypassPCITunnelled(KernelPatcher &patcher, KernelPatcher::KextInfo *kext);
+     static void bypassIOPCITunnelCompatible(KernelPatcher &patcher, KernelPatcher::KextInfo *kext);
+     static void updateMuxControlNVRAMVar(KernelPatcher &patcher, KernelPatcher::KextInfo *kext);
++    static void enlargeAGDCStructures(KernelPatcher &patcher, KernelPatcher::KextInfo *kext);
+     static void routeThunderboltEnumeration(KernelPatcher &patcher, size_t *index, mach_vm_address_t *address, size_t *size);
+ };
+ 
+diff --git a/Kryptonite/Kryptonite/kern_patchset.cpp b/Kryptonite/Kryptonite/kern_patchset.cpp
+index 3f88dea..88e44dd 100644
+--- a/Kryptonite/Kryptonite/kern_patchset.cpp
++++ b/Kryptonite/Kryptonite/kern_patchset.cpp
+@@ -48,6 +48,10 @@ void PatchSet::processKext(KernelPatcher& patcher, size_t index, mach_vm_address
+         if (!strcmp(kextList[i].id, kextList[4].id)) {
+             Patches::bypassIOPCITunnelCompatible(patcher, &kextList[i]);
+         }
++        
++        if (!strcmp(kextList[i].id, kextList[5].id)) {
++            Patches::enlargeAGDCStructures(patcher, &kextList[i]);
++        }
+     }
+     
+     patcher.clearError();
+diff --git a/Kryptonite/Kryptonite/kern_targetkexts.hpp b/Kryptonite/Kryptonite/kern_targetkexts.hpp
+index 3ec2b0c..bda18a3 100644
+--- a/Kryptonite/Kryptonite/kern_targetkexts.hpp
++++ b/Kryptonite/Kryptonite/kern_targetkexts.hpp
+@@ -16,7 +16,8 @@ static const char* targetKexts[] = {
+     "/System/Library/Extensions/IOGraphicsFamily.kext/IOGraphicsFamily",
+     "/System/Library/Extensions/AppleGraphicsControl.kext/Contents/PlugIns/AppleMuxControl.kext/Contents/MacOS/AppleMuxControl",
+     "/System/Library/Extensions/IOThunderboltFamily.kext/Contents/MacOS/IOThunderboltFamily",
+-    "/System/Library/Extensions/IOPCIFamily.kext/IOPCIFamily"
++    "/System/Library/Extensions/IOPCIFamily.kext/IOPCIFamily",
++    "/System/Library/Extensions/AMDSupport.kext/Contents/MacOS/AMDSupport"
+ };
+ 
+ static KernelPatcher::KextInfo kextList[] {
+@@ -24,7 +25,9 @@ static KernelPatcher::KextInfo kextList[] {
+     {"com.apple.iokit.IOGraphicsFamily", &targetKexts[1], arraysize(targetKexts), {true}, {}, KernelPatcher::KextInfo::Unloaded},
+     {"com.apple.driver.AppleMuxControl", &targetKexts[2], arraysize(targetKexts), {true}, {}, KernelPatcher::KextInfo::Unloaded},
+     {"com.apple.iokit.IOThunderboltFamily", &targetKexts[3], arraysize(targetKexts), {true}, {}, KernelPatcher::KextInfo::Unloaded},
+-    {"com.apple.iokit.IOPCIFamily", &targetKexts[4], arraysize(targetKexts), {true}, {}, KernelPatcher::KextInfo::Unloaded}
++    {"com.apple.iokit.IOPCIFamily", &targetKexts[4], arraysize(targetKexts), {true}, {}, KernelPatcher::KextInfo::Unloaded},
++    // OCLP's Monterey AMDSupport on non-AVX2 Macs (kernel 22+): one path only
++    {"com.apple.kext.AMDSupport", &targetKexts[5], 1, {true}, {}, KernelPatcher::KextInfo::Unloaded}
+ };
+ 
+ static size_t kextListSize = arraysize(kextList);
