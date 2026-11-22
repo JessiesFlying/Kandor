@@ -5,7 +5,7 @@
 #
 #   bash src/build-kext.sh          on a Mac with Xcode (Apple Silicon or Intel); no sudo
 #
-# Clones mayankk2308/kryptonite at the tested commit, applies patches 1–6 (see README.md), fetches Lilu
+# Clones mayankk2308/kryptonite at the tested commit, applies patches 1–8 (see README.md), fetches Lilu
 # (DEBUG build, for its headers and library) and acidanthera's MacKernelSDK, builds with xcodebuild for x86_64
 # and writes  src/out/Kryptonite-<version>.kext  plus a build log. Nothing outside src/build and src/out is touched.
 
@@ -17,7 +17,8 @@ LILU_VERSION=1.7.2                 # the Lilu that OCLP 3.0.0-rc.5 installs
 LILU_ZIP="https://github.com/acidanthera/Lilu/releases/download/$LILU_VERSION/Lilu-$LILU_VERSION-DEBUG.zip"
 SDK=https://github.com/acidanthera/MacKernelSDK.git
 PATCHES="kandor-sequoia-24G720.patch kandor-tahoe-25G241.patch kandor-sonoma-threshold.patch
-kandor-amdsupport-agdc.patch kandor-x5000-selectors.patch kandor-version-1.2.0.patch"
+kandor-amdsupport-agdc.patch kandor-x5000-selectors.patch kandor-version-1.2.0.patch
+kandor-navi-agdc.patch kandor-navi-selectors.patch"
 
 B="$HERE/build"; OUT="$HERE/out"; LOG="$OUT/build-$(date +%Y%m%d-%H%M%S).log"
 mkdir -p "$OUT"

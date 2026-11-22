@@ -1,0 +1,123 @@
+Kandor - patch 8: user-client selector redirects also for Navi (OCLP's old AMDRadeonX6000.kext on Tahoe)
+Apply after patches 1-7. Author: ne1rom, with assistance from Claude (Anthropic)
+SPDX-License-Identifier: GPL-3.0-only
+
+On Tahoe, OCLP's Navi userland calls AMDRadeonX6000_AMDAccelSharedUserClient with Tahoe's numbering, like the Vega
+userland in patch 5: 0x102 with 1 scalar (getIOSurfaceInfo, old 0x103) and 0x105 with a 12-byte packet
+(RsrcAndXorByteFlag, old 0x106). Measured on Tahoe 26.7.3 / OCLP 3.0.0-rc.5 with an RX 6900 XT: ~14000
+"inputCount count mismatch 0x1 0x0" per 2 minutes and a solid-colour desktop without the redirect. Extends patch
+5 to the X6000 class with the same detection (ForceLegacyMode symbol present = old kext); same -krynoredirect
+switch. The same remap was validated earlier as ne1rom's egpudma plugin (258->259, 261->262).
+
+diff --git a/Kryptonite/Kryptonite/kern_hooks.cpp b/Kryptonite/Kryptonite/kern_hooks.cpp
+index 3a3b9b7..934fe45 100644
+--- a/Kryptonite/Kryptonite/kern_hooks.cpp
++++ b/Kryptonite/Kryptonite/kern_hooks.cpp
+@@ -24,13 +24,17 @@ int FunctionHooks::thunderboltShouldSkipEnumeration() {
+ // Calls in the old numbering are unaffected. Disable with -krynoredirect.
+ mach_vm_address_t FunctionHooks::orgAccelSharedExternalMethod {0};
+ bool FunctionHooks::oldX5000SharedUserClient {false};
++// The same applies to OCLP's old Navi kext AMDRadeonX6000.kext on Tahoe (same selectors, same argument shapes;
++// validated earlier by ne1rom's egpudma remap 258->259 / 261->262). ne1rom, with assistance from Claude (Anthropic).
++bool FunctionHooks::oldX6000SharedUserClient {false};
+ 
+ IOReturn FunctionHooks::accelSharedExternalMethod(IOUserClient *that, uint32_t selector, IOExternalMethodArguments *args,
+                                                   IOExternalMethodDispatch *dispatch, OSObject *target, void *reference) {
+-    if (oldX5000SharedUserClient && that && args && (selector == 0x102 || selector == 0x105)) {
++    if ((oldX5000SharedUserClient || oldX6000SharedUserClient) && that && args && (selector == 0x102 || selector == 0x105)) {
+         const OSMetaClass *meta = that->getMetaClass();
+         const char *name = meta ? meta->getClassName() : nullptr;
+-        if (name && !strcmp(name, "AMDRadeonX5000_AMDAccelSharedUserClient")) {
++        if (name && ((oldX5000SharedUserClient && !strcmp(name, "AMDRadeonX5000_AMDAccelSharedUserClient")) ||
++                     (oldX6000SharedUserClient && !strcmp(name, "AMDRadeonX6000_AMDAccelSharedUserClient")))) {
+             uint32_t to = selector;
+             if (selector == 0x102 && args->scalarInputCount == 1) {
+                 to = 0x103;
+diff --git a/Kryptonite/Kryptonite/kern_hooks.hpp b/Kryptonite/Kryptonite/kern_hooks.hpp
+index 9e86dd2..0b788c4 100644
+--- a/Kryptonite/Kryptonite/kern_hooks.hpp
++++ b/Kryptonite/Kryptonite/kern_hooks.hpp
+@@ -22,6 +22,7 @@ public:
+     // User-client selector redirects for OCLP's old AMDRadeonX5000.kext (see kern_hooks.cpp)
+     static mach_vm_address_t orgAccelSharedExternalMethod;
+     static bool oldX5000SharedUserClient;
++    static bool oldX6000SharedUserClient;   // the same for OCLP's old Navi kext AMDRadeonX6000.kext
+     static IOReturn accelSharedExternalMethod(IOUserClient *that, uint32_t selector, IOExternalMethodArguments *args,
+                                               IOExternalMethodDispatch *dispatch, OSObject *target, void *reference);
+     
+diff --git a/Kryptonite/Kryptonite/kern_patches.cpp b/Kryptonite/Kryptonite/kern_patches.cpp
+index 8164038..c521d57 100644
+--- a/Kryptonite/Kryptonite/kern_patches.cpp
++++ b/Kryptonite/Kryptonite/kern_patches.cpp
+@@ -199,6 +199,19 @@ void Patches::detectOldX5000(KernelPatcher &patcher, size_t index, mach_vm_addre
+     patcher.clearError();
+ }
+ 
++// The same detection for OCLP's old Navi kext (Monterey AMDRadeonX6000.kext installed on Tahoe).
++// ne1rom, with assistance from Claude (Anthropic), GPL-3.0-only.
++void Patches::detectOldX6000(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size) {
++    if (!redirectsEnabled()) {
++        return;
++    }
++    mach_vm_address_t old = patcher.solveSymbol(index, "__ZN39AMDRadeonX6000_AMDAccelSharedUserClient15ForceLegacyModeEv", address, size);
++    FunctionHooks::oldX6000SharedUserClient = old != 0 && FunctionHooks::orgAccelSharedExternalMethod != 0;
++    SYSLOG(moduleName, "AMDRadeonX6000: old user-client numbering %s, selector redirects %s",
++           old ? "yes" : "no", FunctionHooks::oldX6000SharedUserClient ? "active" : "off");
++    patcher.clearError();
++}
++
+ void Patches::updateMuxControlNVRAMVar(KernelPatcher &patcher, KernelPatcher::KextInfo *kext) {
+     const uint8_t find[] = {0x46, 0x41, 0x34, 0x43, 0x45, 0x32, 0x38, 0x44, 0x2d, 0x42, 0x36, 0x32, 0x46, 0x2d,
+         0x34, 0x43, 0x39, 0x39, 0x2d, 0x39, 0x43, 0x43, 0x33, 0x2d, 0x36, 0x38, 0x31,
+diff --git a/Kryptonite/Kryptonite/kern_patches.hpp b/Kryptonite/Kryptonite/kern_patches.hpp
+index b144802..dfb16d0 100644
+--- a/Kryptonite/Kryptonite/kern_patches.hpp
++++ b/Kryptonite/Kryptonite/kern_patches.hpp
+@@ -25,6 +25,7 @@ public:
+     static bool redirectsEnabled();
+     static void routeAccelSharedExternalMethod(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size);
+     static void detectOldX5000(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size);
++    static void detectOldX6000(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size);
+     static void routeThunderboltEnumeration(KernelPatcher &patcher, size_t *index, mach_vm_address_t *address, size_t *size);
+ };
+ 
+diff --git a/Kryptonite/Kryptonite/kern_patchset.cpp b/Kryptonite/Kryptonite/kern_patchset.cpp
+index 0274eb4..6b089cc 100644
+--- a/Kryptonite/Kryptonite/kern_patchset.cpp
++++ b/Kryptonite/Kryptonite/kern_patchset.cpp
+@@ -64,6 +64,10 @@ void PatchSet::processKext(KernelPatcher& patcher, size_t index, mach_vm_address
+         if (!strcmp(kextList[i].id, kextList[8].id)) {
+             Patches::enlargeAGDCStructuresNavi(patcher, &kextList[i]);
+         }
++
++        if (!strcmp(kextList[i].id, kextList[9].id)) {
++            Patches::detectOldX6000(patcher, index, address, size);
++        }
+     }
+     
+     patcher.clearError();
+diff --git a/Kryptonite/Kryptonite/kern_targetkexts.hpp b/Kryptonite/Kryptonite/kern_targetkexts.hpp
+index 35464de..29340ee 100644
+--- a/Kryptonite/Kryptonite/kern_targetkexts.hpp
++++ b/Kryptonite/Kryptonite/kern_targetkexts.hpp
+@@ -20,7 +20,8 @@ static const char* targetKexts[] = {
+     "/System/Library/Extensions/AMDSupport.kext/Contents/MacOS/AMDSupport",
+     "/System/Library/Extensions/IOAcceleratorFamily2.kext/Contents/MacOS/IOAcceleratorFamily2",
+     "/System/Library/Extensions/AMDRadeonX5000.kext/Contents/MacOS/AMDRadeonX5000",
+-    "/System/Library/Extensions/AMDRadeonX6000Framebuffer.kext/Contents/MacOS/AMDRadeonX6000Framebuffer"
++    "/System/Library/Extensions/AMDRadeonX6000Framebuffer.kext/Contents/MacOS/AMDRadeonX6000Framebuffer",
++    "/System/Library/Extensions/AMDRadeonX6000.kext/Contents/MacOS/AMDRadeonX6000"
+ };
+ 
+ static KernelPatcher::KextInfo kextList[] {
+@@ -35,7 +36,9 @@ static KernelPatcher::KextInfo kextList[] {
+     {"com.apple.iokit.IOAcceleratorFamily2", &targetKexts[6], 1, {true}, {}, KernelPatcher::KextInfo::Unloaded},
+     {"com.apple.kext.AMDRadeonX5000", &targetKexts[7], 1, {true}, {}, KernelPatcher::KextInfo::Unloaded},
+     // OCLP's Monterey Navi framebuffer on Tahoe (non-AVX2 Macs): one path only
+-    {"com.apple.kext.AMDRadeonX6000Framebuffer", &targetKexts[8], 1, {true}, {}, KernelPatcher::KextInfo::Unloaded}
++    {"com.apple.kext.AMDRadeonX6000Framebuffer", &targetKexts[8], 1, {true}, {}, KernelPatcher::KextInfo::Unloaded},
++    // user-client selector redirects for OCLP's old Navi kext (Tahoe): the kext they serve
++    {"com.apple.kext.AMDRadeonX6000", &targetKexts[9], 1, {true}, {}, KernelPatcher::KextInfo::Unloaded}
+ };
+ 
+ static size_t kextListSize = arraysize(kextList);
