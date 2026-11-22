@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// kandor_shim.m – wrapper around OCLP's Metal shim (impostor.dylib) for the Vega eGPU on macOS Tahoe
+// kandor_shim.m – wrapper around OCLP's Metal shim (impostor.dylib) for Vega and Navi eGPUs on macOS Tahoe
 // Kandor (JessiesFlying, with assistance from Claude (Anthropic)) – macOS Tahoe
+// Navi (AMDRadeonX6000MTLDriver) path: ne1rom, with assistance from Claude (Anthropic)
 //
-// Built and installed by kandor.sh vega-patch as the new impostor.dylib of AMDRadeonX5000MTLDriver.bundle. It
+// Built and installed by kandor.sh vega-patch as the new impostor.dylib of the eGPU's Metal driver bundle
+// (AMDRadeonX5000MTLDriver.bundle for Vega, AMDRadeonX6000MTLDriver.bundle for Navi). It
 // re-exports Dortania's original, renamed to impostor_dortania.dylib, so the driver still gets every symbol of it
 // and Dortania's constructor (GPU registration, its own swizzles) runs before ours. Then it
 // (a) points the real_* pointers of all loaded shims back to Metal's own implementation (breaks the chain of the
@@ -73,6 +75,7 @@ static acc_rec R[] = {
 // the shims that may be loaded in this process
 static const char *SHIMS[] = {
     "/System/Library/Extensions/AMDRadeonX5000MTLDriver.bundle/Contents/MacOS/impostor_dortania.dylib",
+    "/System/Library/Extensions/AMDRadeonX6000MTLDriver.bundle/Contents/MacOS/impostor_dortania.dylib",   // Navi
     "/System/Library/Extensions/AMDMTLBronzeDriver.bundle/Contents/MacOS/impostor.dylib",
 };
 #define NSHIM (int)(sizeof(SHIMS) / sizeof(SHIMS[0]))
