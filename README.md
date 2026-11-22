@@ -6,12 +6,16 @@ Kandor gets an external AMD graphics card working on the Mac Pro 2013 from macOS
 FirePro GPUs keep working as before. It is built on the Monterey project "[Kryptonite](https://github.com/mayankk2308/kryptonite)" and,
 like Superman's city in a bottle "Kandor", it is a whole new world in the cylinder.
 
+For more info and help:
+
+- 💬 [Join the JessiesFlying Discord server](https://discord.gg/rAhpJNqaKS)
+- ▶️ [Subscribe to JessiesFlying on YouTube](https://youtube.com/JessiesFlying)
+
 ## 🧰 What you need
 
-- A **Mac Pro (Late 2013)** running macOS Monterey (12), Ventura (13), Sonoma (14), Sequoia (15) or Tahoe (26) – from Ventura on with
-  [OpenCore Legacy Patcher](https://dortania.github.io/OpenCore-Legacy-Patcher/) (OCLP)
-- A **Thunderbolt 3 eGPU box** and a Thunderbolt 2 cable
-- The original **Apple Thunderbolt 3 (USB-C) to Thunderbolt 2 Adapter** (not a third-party one)
+- A **Mac Pro (Late 2013)** running macOS Monterey (12), Ventura (13), Sonoma (14), Sequoia (15) or Tahoe (26)
+- A Thunderbolt 2 cable and the original **Apple Thunderbolt 2 to Thunderbolt 3 (USB-C) Adapter** (not a third-party one)
+- A **Thunderbolt 3 eGPU box**
 - A supported **AMD graphics card** (table below)
 
 > [!TIP]
@@ -35,12 +39,12 @@ like Superman's city in a bottle "Kandor", it is a whole new world in the cylind
 > starts up or runs – the Mac freezes. To change something, shut the Mac down first. Don't use "Disconnect" in the
 > menu bar either.
 
-### 0. Monterey only: install OpenCore (optional)
+### 0. Monterey only: install OpenCore
 
-Monterey runs on the Mac Pro without OCLP. If OpenCore isn't installed yet, click **Build and Install OpenCore** in
-OCLP first. On Ventura and later it is already there.
+Monterey runs on the Mac Pro without [OpenCore Legacy Patcher](https://dortania.github.io/OpenCore-Legacy-Patcher/) (OCLP). If OpenCore isn't installed yet, click **Build and Install OpenCore** in
+OCLP first. On Ventura and later it's needed to run macOS anyway.
 
-### 1. Get and install Kandor
+### 1. Install Kandor
 
 Download **Kandor.zip** from the [latest release](https://github.com/JessiesFlying/Kandor/releases/latest) and unzip
 it (for example in Downloads). Open Terminal, go into the folder and start the Kandor menu:
@@ -60,20 +64,20 @@ box on, then start the Mac.
 > [!WARNING]
 > The upper Thunderbolt ports don't work for the eGPU: with the eGPU there, the Mac doesn't start (no chime).
 
-### 3. Install the drivers
+### 3. Install the graphic drivers
 
 Skip this step on Monterey.
 
 In OCLP, click **Post-Install Root Patch** with the eGPU attached. If OCLP says the system is already patched, click
 **Revert Root Patches** first, restart and try again. Then restart.
 
-On **Tahoe with a Vega card**: shut down instead of restarting and go on with step 4.
+On **Tahoe with a Vega card**: shut down instead of restarting and go on with step 3a.
 
-### 4. Tahoe with a Vega card only
+### 3a. Tahoe with a Vega card only
 
 With the **eGPU unplugged**, start the Mac, start the Kandor menu and choose menu option **#4: "vega-patch"**. Then shut down, plug the eGPU back in, switch the box on and start the Mac.
 
-### 5. Check
+### 4. Check
 
 ```
 sudo bash kandor.sh
@@ -94,17 +98,18 @@ Start the Kandor menu and choose menu option **#1: "status"**. Every line should
 |---|---|
 | **#0: "credits"** | who made what, license |
 | **#1: "status"** | checks everything, changes nothing |
-| **#2: "log"** | collects the logs into the `logs` folder when something goes wrong, changes nothing |
+| **#2: "log"** | collects error logs when something goes wrong, changes nothing |
 | **#3: "efi"** | installs Kandor into OpenCore |
-| **#4: "vega-patch"** | Tahoe with a Vega card: installs the graphics fix |
-| **#5: "vega-patch-revert"** | Tahoe: removes it again |
+| **#4: "vega-patch"** | macOS Tahoe: installs the graphics fix for Vega cards |
+| **#5: "vega-patch-revert"** | macOS Tahoe: uninstalls the Vega graphics fix |
 
 ## 🛟 If something goes wrong
 
 - **The Mac hangs while starting:** hold the power button until it turns off, unplug the eGPU and start the Mac
   again (or pick another macOS in the OpenCore boot menu).
 - **No picture on the eGPU:** choose menu option **#1: "status"** – the lines marked ✗ or ! tell you what to do.
-- **Still stuck:** choose menu option **#2: "log"** and share the new folder in `logs` when you ask for help.
+- **Still stuck:** choose menu option **#2: "log"** and share the new folder in `logs` when you ask for help on the
+  [JessiesFlying Discord server](https://discord.gg/rAhpJNqaKS).
 
 Kandor creates the folders `backup` and `logs` next to `kandor.sh`. They stay on your Mac – don't share `backup`.
 
