@@ -109,7 +109,7 @@ EOF
 count_hex() { [ -f "$2" ] || { echo 0; return; }; perl -0777 -ne 'BEGIN{$p=pack("H*",shift @ARGV)} $n=()=/\Q$p\E/g; print $n+0' "$1" "$2" 2>/dev/null || echo 0; }
 kernel_major() { uname -r | cut -d. -f1; }
 os_name() { case "$(kernel_major)" in 21) echo Monterey;; 22) echo Ventura;; 23) echo Sonoma;; 24) echo Sequoia;; 25) echo Tahoe;; *) echo "kernel $(kernel_major)";; esac; }
-pl() { plutil -extract "$1" raw -o - "$2" 2>/dev/null; }   # pl KEYPATH FILE -> value
+pl() { local v; v=$(plutil -extract "$1" raw -o - "$2" 2>/dev/null) || return 1; printf '%s\n' "$v"; }   # pl KEYPATH FILE -> value
 
 need_root() { [ "$(id -u)" = 0 ] || { printf "\n  Please run with sudo:  ${B}sudo bash \"%s\"${R}\n\n" "$0"; exit 1; }; }
 
@@ -129,7 +129,7 @@ do_status() {
   ok "macOS $(sw_vers -productVersion) ($(sw_vers -buildVersion)), $(os_name), kernel $(uname -r)"
   local ocv rpv; ocv=$(nvram "$OC_GUID:OCLP-Version" 2>/dev/null | cut -f2- | sed 's/%00//g')
   [ -n "$ocv" ] && ok "Booted through OpenCore built by OCLP $ocv" || warn "No OCLP-Version in NVRAM (not booted through an OCLP-built OpenCore?)"
-  rpv=$(plutil -extract "OpenCore Legacy Patcher" raw /System/Library/CoreServices/OpenCore-Legacy-Patcher.plist 2>/dev/null)
+  rpv=$(pl "OpenCore Legacy Patcher" /System/Library/CoreServices/OpenCore-Legacy-Patcher.plist)
   if [ "$(kernel_major)" -ge 22 ]; then
     [ -n "$rpv" ] && ok "OCLP root patches installed ($rpv)" || bad "No OCLP root patches on this macOS: run OCLP → Post-Install Root Patch (with the eGPU attached)"
   else info "Monterey: no OCLP root patches needed"; fi
@@ -365,7 +365,7 @@ find_efi() { # sets EFI_DEV, EFI_MP
   bp=$(nvram "$OC_GUID:boot-path" 2>/dev/null | cut -f2-)
   guid=$(echo "$bp" | grep -oE 'GPT,[0-9A-Fa-f-]{36}' | cut -d, -f2)
   if [ -n "$guid" ]; then
-    EFI_DEV=$(diskutil info -plist "$guid" 2>/dev/null | plutil -extract DeviceIdentifier raw - 2>/dev/null)
+    EFI_DEV=$(diskutil info -plist "$guid" 2>/dev/null | plutil -extract DeviceIdentifier raw -o - - 2>/dev/null) || EFI_DEV=""
     [ -n "$EFI_DEV" ] && info "OpenCore booted from partition $guid → /dev/$EFI_DEV"
   fi
   if [ -z "$EFI_DEV" ]; then
@@ -376,14 +376,14 @@ find_efi() { # sets EFI_DEV, EFI_MP
   diskutil info "$EFI_DEV" >/dev/null 2>&1 || die "/dev/$EFI_DEV does not exist"
   local size parent media
   size=$(diskutil info "$EFI_DEV" | awk -F: '/Disk Size/{print $2}' | cut -d'(' -f1 | sed 's/^ *//; s/ *$//')
-  parent=$(diskutil info -plist "$EFI_DEV" | plutil -extract ParentWholeDisk raw - 2>/dev/null)
+  parent=$(diskutil info -plist "$EFI_DEV" | plutil -extract ParentWholeDisk raw -o - - 2>/dev/null) || parent=""
   media=$(diskutil info "${parent:-$EFI_DEV}" | awk -F: '/Device \/ Media Name/{print $2}' | sed 's/^ *//; s/ *$//')
   info "Partition: /dev/$EFI_DEV ($size) on /dev/${parent:-?}${media:+, $media}"
-  EFI_MP=$(diskutil info -plist "$EFI_DEV" | plutil -extract MountPoint raw - 2>/dev/null)
+  EFI_MP=$(diskutil info -plist "$EFI_DEV" | plutil -extract MountPoint raw -o - - 2>/dev/null) || EFI_MP=""
   if [ -z "$EFI_MP" ]; then
     ask "Mount /dev/$EFI_DEV now?" || die "EFI not mounted"
     diskutil mount "$EFI_DEV" >/dev/null || die "diskutil mount $EFI_DEV failed"
-    EFI_MP=$(diskutil info -plist "$EFI_DEV" | plutil -extract MountPoint raw - 2>/dev/null)
+    EFI_MP=$(diskutil info -plist "$EFI_DEV" | plutil -extract MountPoint raw -o - - 2>/dev/null) || EFI_MP=""
     EFI_MOUNTED_BY_US=1
   fi
   ok "EFI mounted at $EFI_MP"
@@ -391,10 +391,10 @@ find_efi() { # sets EFI_DEV, EFI_MP
 
 # config.plist is edited with plutil only (insert/remove/extract); indexed PlistBuddy edits on
 # Kernel:Add have produced phantom entries that pass plutil -lint but stop OpenCore.
-kext_count() { local i=0; while plutil -extract "Kernel.Add.$i" xml1 -o /dev/null "$1" 2>/dev/null; do i=$((i+1)); done; echo $i; }
+kext_count() { local i=0; while plutil -extract "Kernel.Add.$i" xml1 -o - "$1" >/dev/null 2>&1; do i=$((i+1)); done; echo $i; }
 # all BundlePaths in order (used to prove that nothing else changed)
 kext_paths() { local i=0 n; n=$(kext_count "$1"); while [ $i -lt $n ]; do pl "Kernel.Add.$i.BundlePath" "$1"; i=$((i+1)); done; }
-patch_count() { local i=0; while plutil -extract "Kernel.Patch.$i" xml1 -o /dev/null "$1" 2>/dev/null; do i=$((i+1)); done; echo $i; }
+patch_count() { local i=0; while plutil -extract "Kernel.Patch.$i" xml1 -o - "$1" >/dev/null 2>&1; do i=$((i+1)); done; echo $i; }
 patch_comments() { local i=0 n; n=$(patch_count "$1"); while [ $i -lt $n ]; do echo "$i|$(pl "Kernel.Patch.$i.Comment" "$1")"; i=$((i+1)); done; }
 # OCLP's own "Disable Library Validation Enforcement" kernel patch (payloads/Config/config.plist: _cs_require_lv -> return 0),
 # limited to Tahoe: lets WindowServer load the ad-hoc signed shim wrapper with AMFI on (instead of amfi_get_out_of_my_way=1)
@@ -521,7 +521,7 @@ do_efi() {
 # ------------------------------------------------------- system volume ---
 mount_root() {
   local dev
-  dev=$(diskutil info -plist / | plutil -extract DeviceIdentifier raw -)
+  dev=$(diskutil info -plist / | plutil -extract DeviceIdentifier raw -o - - 2>/dev/null) || dev=""
   echo "$dev" | grep -qE '^disk[0-9]+s[0-9]+s[0-9]+$' && dev="${dev%s*}"   # booted snapshot -> its volume
   if [ ! -f "$MNT/System/Library/CoreServices/SystemVersion.plist" ]; then
     mount -o nobrowse -t apfs "/dev/$dev" "$MNT" || die "could not mount the system volume /dev/$dev"
