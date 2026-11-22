@@ -5,19 +5,21 @@
 - **OpenCore Legacy Patcher** (Dortania): BSD-4-Clause for its own files, bundled components under their own
   licenses (https://dortania.github.io/OpenCore-Legacy-Patcher/LICENSE.html). Not included.
 - **Kryptonite** (mayankk2308, https://github.com/mayankk2308/kryptonite): GPL-3.0. Full text in `LICENSE`.
-  `Kexts/Kryptonite-1.2.0.kext` is distributed under GPL-3.0; its source is the upstream repository plus the
-  patches in `src/` (see `src/README.md`).
+  `Kexts/Kryptonite-1.2.0.kext` is distributed under GPL-3.0; its source is the upstream repository plus
+  patches 1–6 in `src/` (see `src/README.md`; patches 7–8 are for the next build).
 - **kandor.sh**, **shim/kandor_shim.m**, **src/build-kext.sh** and the source patches 3–6 (JessiesFlying, with assistance from
   Claude (Anthropic)): GPL-3.0 (`SPDX-License-Identifier: GPL-3.0-only`).
-- Source patches 1–2 (ne1rom, with assistance from Claude (Anthropic)): changes to Kryptonite, GPL-3.0 like Kryptonite.
+- Source patches 1–2 and 7–8 (ne1rom, with assistance from Claude (Anthropic)): changes to Kryptonite, GPL-3.0 like
+  Kryptonite (`SPDX-License-Identifier: GPL-3.0-only`).
 
 **No Apple or OCLP binaries are part of Kandor.** The AMD driver fix is a patch inside Kryptonite that changes
-OCLP's AMDSupport in memory only; the Vega shim wrapper re-exports OCLP's shim installed on the user's own machine.
+OCLP's AMDSupport (and, for Navi, OCLP's AMDRadeonX6000Framebuffer) in memory only; the shim wrapper re-exports
+OCLP's shim installed on the user's own machine.
 The `backup/` folder is created locally by the script and must never be published.
 
 ## Kryptonite builds
 **1.2.0** (the one build of Kandor, kernel 21–25, Monterey to Tahoe): built by `src/build-kext.sh` from upstream
-`mayankk2308/kryptonite` `6e97e36` plus all six patches in `src/`: ne1rom's two (`kandor-sequoia-24G720.patch`,
+`mayankk2308/kryptonite` `6e97e36` plus patches 1–6 in `src/`: ne1rom's two (`kandor-sequoia-24G720.patch`,
 `kandor-tahoe-25G241.patch`) and Kandor's four (Sonoma threshold, AMDSupport display fix in memory, X5000
 user-client redirects for Tahoe, version). Binary md5 `f95cb8769554439ff91828d957884ddf`. Tested on 21 Nov 2026 on Monterey 12.7.6, Sonoma 14.8.9,
 Sequoia 15.8.1 and Tahoe 26.7.2 (Mac Pro 6,1, RX Vega 56; original OCLP AMDSupport, AMFI on).
@@ -27,7 +29,8 @@ Earlier builds (1.1.0: ne1rom's Sequoia build with one byte changed, Monterey to
 ## Credits
 - acidanthera: OpenCore, Lilu; Dortania: OpenCore Legacy Patcher
 - mayankk2308 & mac_editor: Kryptonite; goalque: NVIDIA eGFX support; rgov: Ti82 patches (adapted by mac_editor)
-- ne1rom, with assistance from Claude (Anthropic): Kryptonite for macOS Sequoia and Tahoe
+- ne1rom, with assistance from Claude (Anthropic): Kryptonite for macOS Sequoia and Tahoe; Navi on Tahoe (AGDC fix for
+  the Navi framebuffer, user-client redirects for AMDRadeonX6000, Navi path in the shim wrapper)
 - JessiesFlying, with assistance from Claude (Anthropic): Kryptonite for Ventura & Sonoma (one build for Monterey to Tahoe), the AMDSupport fix for
   eGPU display output, the Tahoe user-client redirects and Vega Metal shim wrapper, Kandor
 
