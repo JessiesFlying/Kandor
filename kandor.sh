@@ -8,7 +8,7 @@
 #           sudo bash kandor.sh credits            credits and license
 #           sudo bash kandor.sh status             system status (read-only)
 #           sudo bash kandor.sh log                collect the logs into logs/log-<date>/ (read-only)
-#           sudo bash kandor.sh efi                install / update Kryptonite in the EFI
+#           sudo bash kandor.sh efi                install / update Kandor in the EFI
 #  Tahoe only:
 #           sudo bash kandor.sh vega-patch         build + install the Vega Metal shim wrapper (shim/kandor_shim.m)
 #           sudo bash kandor.sh vega-patch-revert  put OCLP's original shim back
@@ -134,7 +134,7 @@ do_status() {
     [ -n "$rpv" ] && ok "OCLP root patches installed ($rpv)" || bad "No OCLP root patches on this macOS: run OCLP → Post-Install Root Patch (with the eGPU attached)"
   else info "Monterey: no OCLP root patches needed"; fi
   local ba; ba=$(nvram boot-args 2>/dev/null | cut -f2-)
-  case " $ba " in *" krygpu=AMD "*) ok "boot-args contain krygpu=AMD";; *) bad "boot-args lack krygpu=AMD (install Kryptonite into the EFI: menu 3)";; esac
+  case " $ba " in *" krygpu=AMD "*) ok "boot-args contain krygpu=AMD";; *) bad "boot-args lack krygpu=AMD → menu 3 (efi)";; esac
   case " $ba " in *" amfi_get_out_of_my_way=1 "*) warn "AMFI is off (amfi_get_out_of_my_way=1) – not needed any more: menu 3 (efi) removes it";; *) ok "AMFI on";; esac
 
   step "Kryptonite"
@@ -200,11 +200,10 @@ do_status() {
   # Kryptonite 1.2.0 adapts OCLP's AMDSupport in memory on Ventura and later, unless -krynoagdc is set
   [ "$(kernel_major)" -ge 22 ] && [ "$kv" = "$KRY_VERSION" ] && case " $ba " in *" -krynoagdc "*) ;; *) agdc=1;; esac
   if [ -z "$am" ]; then info "No AMDSupport on the system volume"
-  elif [ "$am" != "$AMD_MD5_TESTED" ]; then
-    warn "AMDSupport is not OCLP's tested build (md5 $am): Kryptonite's display fix may not apply – an OCLP root patch puts OCLP's build back"
-  elif [ "$(kernel_major)" -lt 22 ]; then ok "AMDSupport: OCLP's build, unchanged (Monterey needs no display fix)"
-  elif [ "$agdc" = 1 ]; then ok "AMDSupport: OCLP's build; Kryptonite $kv adapts it in memory for the larger display structures"
-  else bad "AMDSupport needs the eGPU display fix: Kryptonite $KRY_VERSION without -krynoagdc (menu 3)"; fi
+  elif [ "$(kernel_major)" -lt 22 ]; then ok "AMDSupport: Apple's own driver (Monterey needs no display fix)"
+  elif [ "$am" != "$AMD_MD5_TESTED" ]; then warn "AMDSupport is not OCLP's tested build: run OCLP's root patch again"
+  elif [ "$agdc" = 1 ]; then ok "AMDSupport: OCLP's build, display fix active"
+  else bad "AMDSupport: display fix not active → menu 3 (efi)"; fi
   if [ "$(kernel_major)" = 25 ]; then
     step "Tahoe: Vega Metal shim and user-client redirects"
     shim_status
@@ -555,12 +554,12 @@ case "${1:-menu}" in
   menu)
     while true; do
       printf "\n  ${B}0${R}  Show credits and licenses\n"
-      printf "  ${B}1${R}  Show current status of your Mac regarding eGPU support\n"
-      printf "  ${B}2${R}  Collect boot and error logs\n"
-      printf "  ${B}3${R}  Install / update Kryptonite in the EFI\n"
+      printf "  ${B}1${R}  Show the status (checks everything, changes nothing)\n"
+      printf "  ${B}2${R}  Collect error logs\n"
+      printf "  ${B}3${R}  Install / update Kandor in the EFI\n"
       if [ "$(kernel_major)" = 25 ]; then
-        printf "  ${B}4${R}  Install the Vega Metal shim wrapper (macOS 26 Tahoe only)\n"
-        printf "  ${B}5${R}  Restore OCLP's Vega Metal shim (macOS 26 Tahoe only)\n"
+        printf "  ${B}4${R}  macOS Tahoe: install the graphics fix for Vega cards\n"
+        printf "  ${B}5${R}  macOS Tahoe: uninstall the graphics fix for Vega cards\n"
       fi
       printf "  ${B}q${R}  Quit\n\n"
       c=$(choose "Choose")
@@ -571,11 +570,11 @@ case "${1:-menu}" in
     done;;
   *) printf "\n"; warn "unknown command: $1"
      printf "\n  usage: sudo bash %s [command]   (no command: menu)\n" "$0"
-     printf "    credits             credits and license\n"
-     printf "    status              system status (read-only)\n"
-     printf "    log                 collect the logs into logs/log-<date>/ (read-only)\n"
-     printf "    efi                 install / update Kryptonite %s in the EFI\n" "$KRY_VERSION"
-     printf "    vega-patch          install the Vega Metal shim wrapper (Tahoe)\n"
-     printf "    vega-patch-revert   restore OCLP's Vega Metal shim (Tahoe)\n";;
+     printf "    credits             show credits and licenses\n"
+     printf "    status              show the status (checks everything, changes nothing)\n"
+     printf "    log                 collect error logs\n"
+     printf "    efi                 install / update Kandor in the EFI\n"
+     printf "    vega-patch          macOS Tahoe: install the graphics fix for Vega cards\n"
+     printf "    vega-patch-revert   macOS Tahoe: uninstall the graphics fix for Vega cards\n";;
 esac
 printf "\n"
