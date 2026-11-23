@@ -6,10 +6,10 @@
   licenses (https://dortania.github.io/OpenCore-Legacy-Patcher/LICENSE.html). Not included.
 - **Kryptonite** (mayankk2308, https://github.com/mayankk2308/kryptonite): GPL-3.0. Full text in `LICENSE`.
   `Kexts/Kryptonite-1.3.0.kext` is distributed under GPL-3.0; its source is the upstream repository plus
-  patches 1–8 in `src/` (see `src/README.md`).
+  patches 1–9 in `src/` (see `src/README.md`).
 - **kandor.sh**, **shim/kandor_shim.m**, **src/build-kext.sh** and the source patches 3–6 (JessiesFlying, with assistance from
   Claude (Anthropic)): GPL-3.0 (`SPDX-License-Identifier: GPL-3.0-only`).
-- Source patches 1–2 and 7–8 (ne1rom, with assistance from Claude (Anthropic)): changes to Kryptonite, GPL-3.0 like
+- Source patches 1–2 and 7–9 (ne1rom, with assistance from Claude (Anthropic)): changes to Kryptonite, GPL-3.0 like
   Kryptonite (`SPDX-License-Identifier: GPL-3.0-only`).
 
 **No Apple or OCLP binaries are part of Kandor.** The AMD driver fix is a patch inside Kryptonite that changes
@@ -19,8 +19,9 @@ The `backup/` folder is created locally by the script and must never be publishe
 
 ## Kryptonite builds
 **1.3.0** (the one build of Kandor, kernel 21–25, Monterey to Tahoe): built by `src/build-kext.sh` from upstream
-`mayankk2308/kryptonite` `6e97e36` plus patches 1–8 in `src/`: ne1rom's four (`kandor-sequoia-24G720.patch`,
-`kandor-tahoe-25G241.patch`, Navi display fix and Navi user-client redirects for Tahoe) and Kandor's four (Sonoma
+`mayankk2308/kryptonite` `6e97e36` plus patches 1–9 in `src/`: ne1rom's five (`kandor-sequoia-24G720.patch`,
+`kandor-tahoe-25G241.patch`, Navi display fix, Navi user-client redirects and holding Apple's Navi driver off until
+OCLP's Navi patch, for Tahoe) and Kandor's four (Sonoma
 threshold, AMDSupport display fix in memory, X5000 user-client redirects for Tahoe, version). Binary md5 and tests:
 added with the release build.
 
@@ -32,7 +33,8 @@ Earlier builds are no longer shipped: 1.2.0 (patches 1–6, no Navi; md5 `f95cb8
 - acidanthera: OpenCore, Lilu; Dortania: OpenCore Legacy Patcher
 - mayankk2308 & mac_editor: Kryptonite; goalque: NVIDIA eGFX support; rgov: Ti82 patches (adapted by mac_editor)
 - ne1rom, with assistance from Claude (Anthropic): Kryptonite for macOS Sequoia and Tahoe; Navi on Tahoe (AGDC fix for
-  the Navi framebuffer, user-client redirects for AMDRadeonX6000, Navi path in the shim wrapper)
+  the Navi framebuffer, user-client redirects for AMDRadeonX6000, holding Apple's Navi driver off until OCLP's Navi
+  patch, Navi path in the shim wrapper)
 - JessiesFlying, with assistance from Claude (Anthropic): Kryptonite for Ventura & Sonoma (one build for Monterey to Tahoe), the AMDSupport fix for
   eGPU display output, the Tahoe user-client redirects and Vega Metal shim wrapper, Kandor
 

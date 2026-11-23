@@ -15,6 +15,7 @@ Apply in this order:
 | 6 | `kandor-version-1.3.0.patch` | – | version 1.3.0 |
 | 7 | `kandor-navi-agdc.patch` | ne1rom, with assistance from Claude (Anthropic) | the same AGDC fix for Navi: OCLP's Monterey `AMDRadeonX6000Framebuffer` 4.8.101 on Tahoe, 4 find/replace pairs in memory; kernel 25+ (Tahoe). Off with `-krynoagdc` |
 | 8 | `kandor-navi-selectors.patch` | ne1rom, with assistance from Claude (Anthropic) | extends patch 5 to Navi: the same two user-client redirects for OCLP's old `AMDRadeonX6000.kext` on Tahoe (detected by its `ForceLegacyMode` symbol). Off with `-krynoredirect` |
+| 9 | `kandor-navi-hold.patch` | ne1rom, with assistance from Claude (Anthropic) | on Tahoe without AVX2, holds Apple's own Navi driver off (its controller probes return no match) while OCLP's Navi framebuffer is not installed yet: the Mac starts on its built-in GPUs and OCLP's root patch offers "AMD Navi" (without it WindowServer aborts on every start). Off with `-krynonavihold` |
 
 Build (Mac with Xcode, Apple Silicon or Intel):
 
@@ -22,8 +23,8 @@ Build (Mac with Xcode, Apple Silicon or Intel):
 bash src/build-kext.sh
 ```
 
-It clones upstream, applies 1–8, fetches Lilu 1.7.2 (DEBUG, for headers and library) and acidanthera's MacKernelSDK,
+It clones upstream, applies 1–9, fetches Lilu 1.7.2 (DEBUG, for headers and library) and acidanthera's MacKernelSDK,
 builds for x86_64 and writes `src/out/Kryptonite-1.3.0.kext` with a log (the shipped copy is `../Kexts/Kryptonite-1.3.0.kext`). `src/build/` and `src/out/` are local only.
 
 **1.3.0** (`../Kexts/Kryptonite-1.3.0.kext`, kernel 21–25, the build `kandor.sh efi` installs) is built from all
-eight. The earlier 1.2.0 was built from 1–6 (no Navi).
+nine. The earlier 1.2.0 was built from 1–6 (no Navi).
