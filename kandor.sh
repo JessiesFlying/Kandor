@@ -637,7 +637,9 @@ do_efi() {
       printf "  no picture until the end of this), boot, OCLP → Post-Install Root Patch (it must offer \"AMD Vega\" or\n"
       printf "  \"AMD Navi\"), don't restart yet: menu 4 (shim-patch), then restart.\n"
     elif shims_all_current; then
-      printf "  Kandor's shim wrapper is already installed: shut down, attach the eGPU, boot.\n"
+      if ioreg -r -n display@0 -d 1 2>/dev/null | grep 'IOPCIDevice' | grep -qv ' inactive'; then
+        printf "  Kandor's shim wrapper is already installed: restart (the eGPU stays attached).\n"
+      else printf "  Kandor's shim wrapper is already installed: shut down, attach the eGPU, boot.\n"; fi
     else
       printf "\n  Tahoe also needs Kandor's Metal shim wrapper (menu 4); no reboot needed in between.\n"
       if ask "Install it now?"; then do_shim_patch after-efi
