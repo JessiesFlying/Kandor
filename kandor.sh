@@ -118,6 +118,7 @@ EOF
 # --------------------------------------------------------------- helpers ---
 count_hex() { [ -f "$2" ] || { echo 0; return; }; perl -0777 -ne 'BEGIN{$p=pack("H*",shift @ARGV)} $n=()=/\Q$p\E/g; print $n+0' "$1" "$2" 2>/dev/null || echo 0; }
 kernel_major() { uname -r | cut -d. -f1; }
+is_navi() { case "$1" in 731f|7340|73bf|73ff) return 0;; *) return 1;; esac; }   # Navi cards in Apple's drivers (device-id)
 os_name() { case "$(kernel_major)" in 21) echo Monterey;; 22) echo Ventura;; 23) echo Sonoma;; 24) echo Sequoia;; 25) echo Tahoe;; *) echo "kernel $(kernel_major)";; esac; }
 pl() { local v; v=$(plutil -extract "$1" raw -o - "$2" 2>/dev/null) || return 1; printf '%s\n' "$v"; }   # pl KEYPATH FILE -> value
 
@@ -191,10 +192,8 @@ do_status() {
   else
     pci=$(echo "$node" | grep -m1 '"pcidebug"' | grep -oE '"[0-9]+:[0-9]+:[0-9]+' | tr -d '"')
     ok "eGPU found: $name  (PCI $pci)"
-    case "$dev/$(kernel_major)" in
-      731f/2[234]|7340/2[234]|73bf/2[234]|73ff/2[234])
-        bad "Navi cards work on macOS Monterey and Tahoe only – not on Ventura, Sonoma or Sequoia (Apple's Navi drivers there need a newer CPU)";;
-    esac
+    case "$(kernel_major)" in 22|23|24) is_navi "$dev" &&
+        bad "Navi cards work on macOS Monterey and Tahoe only – not on Ventura, Sonoma or Sequoia (Apple's Navi drivers there need a newer CPU)";; esac
     # Polaris/Vega: AMD<n>Controller; Navi: AMDRadeonX6000_AmdRadeonController<chip>
     if ioreg -r -n display@0 -d 2 -w0 2>/dev/null | grep -qE "class (AMD[0-9]+Controller|AMDRadeonX[0-9]+_AmdRadeonController)"; then ok "AMD driver attached to the eGPU"
     else bad "AMD driver not attached (System Information: driver installed = no) → Kryptonite patch missing or OCLP root patch missing"; fi
@@ -210,7 +209,7 @@ do_status() {
     esac
   fi
 
-  step "AMD driver (AMDSupport)"
+  step "AMD driver (display fix)"
   local am agdc=0; am=$(md5 -q "/$AMD_REL/Contents/MacOS/AMDSupport" 2>/dev/null)
   # Kryptonite 1.2.0 and later adapt OCLP's AMDSupport in memory on Ventura and later, unless -krynoagdc is set
   [ "$(kernel_major)" -ge 22 ] && [ "$kv" = "$KRY_VERSION" ] && case " $ba " in *" -krynoagdc "*) ;; *) agdc=1;; esac
@@ -218,7 +217,20 @@ do_status() {
   elif [ "$(kernel_major)" -lt 22 ]; then ok "AMDSupport: Apple's own driver (Monterey needs no display fix)"
   elif [ "$am" != "$AMD_MD5_TESTED" ]; then warn "AMDSupport is not OCLP's tested build: run OCLP's root patch again"
   elif [ "$agdc" = 1 ]; then ok "AMDSupport: OCLP's build, display fix active"
+  elif [ -n "$kv" ] && [ "$kv" != "$KRY_VERSION" ]; then warn "AMDSupport: OCLP's build; Kryptonite $kv is loaded instead of $KRY_VERSION → menu 3 (efi), then reboot"
   else bad "AMDSupport: display fix not active → menu 3 (efi)"; fi
+  # Navi on Tahoe: Kryptonite's Navi display fix only matches OCLP's (Monterey) AMDRadeonX6000Framebuffer, each pattern once
+  if [ "$(kernel_major)" = 25 ] && is_navi "$dev"; then
+    local fb=/System/Library/Extensions/AMDRadeonX6000Framebuffer.kext/Contents/MacOS/AMDRadeonX6000Framebuffer h nf=0
+    for h in 4881fa044000007562 83fb100f86bc000000 4881facc3d00007565 4881facc3d00000f85a5000000; do
+      [ "$(count_hex "$h" "$fb")" = 1 ] && nf=$((nf+1))
+    done
+    case "$nf" in
+      4) ok "AMDRadeonX6000Framebuffer: OCLP's Navi build, Kryptonite's Navi display fix matches";;
+      0) bad "AMDRadeonX6000Framebuffer: not OCLP's Navi build → OCLP → Post-Install Root Patch (\"AMD Navi\") with the eGPU attached";;
+      *) bad "AMDRadeonX6000Framebuffer: unknown build ($nf of 4 patterns) – the Navi display fix will not apply, menu 2 (log)";;
+    esac
+  fi
   if [ "$(kernel_major)" = 25 ]; then
     step "Tahoe: Metal shim wrapper and user-client redirects"
     shim_status
@@ -320,16 +332,23 @@ do_shim_patch() { # [after-efi]: called by efi, which has just installed Krypton
   xcrun --find clang >/dev/null 2>&1 || die "no Command Line Tools: run  xcode-select --install"
   for b in $targets; do info "OCLP's shim found: $(shim_family "$b") ($b)"; done
   for b in $targets; do shim_build "$b"; done
-  ask "Install it into $(for b in $targets; do printf '%s ' "$(shim_family "$b")"; done | sed 's/ $//; s/ / and /g') (system volume, new boot snapshot)?" || die "cancelled by user"
+  ask "Install the wrapper for $(for b in $targets; do printf '%s ' "$(shim_family "$b")"; done | sed 's/ $//; s/ / and /g') (system volume, new boot snapshot)?" || die "cancelled by user"
   step "Install"
   mount_root
   for b in $targets; do
     SD="$MNT/$(shim_rel "$b")"; bk=$(shim_backup "$b")
     if [ ! -f "$bk" ]; then
       mkdir -p "$(dirname "$bk")"
-      if shim_is_ours "$SD/impostor.dylib"; then cp -p "$SD/impostor_dortania.dylib" "$bk"; else cp -p "$SD/impostor.dylib" "$bk"; fi \
-        || die "backup failed ($b)"
-      ok "$(shim_family "$b"): OCLP's original shim backed up to backup/Shim/$(sw_vers -buildVersion)/$b/"
+      if shim_is_ours "$SD/impostor.dylib"; then
+        # the original was replaced without a backup here: rebuild it from OCLP's copy next to the wrapper
+        # (same code, install name set back to impostor.dylib, re-signed ad hoc – not byte-identical)
+        cp "$SD/impostor_dortania.dylib" "$bk" && install_name_tool -id "/$(shim_rel "$b")/impostor.dylib" "$bk" 2>>"$LOG" \
+          && codesign -f -s - -i impostor "$bk" >>"$LOG" 2>&1 || die "backup failed ($b)"
+        warn "$(shim_family "$b"): no backup of OCLP's original shim existed – rebuilt one from the copy next to the wrapper (backup/Shim/$(sw_vers -buildVersion)/$b/)"
+      else
+        cp -p "$SD/impostor.dylib" "$bk" || die "backup failed ($b)"
+        ok "$(shim_family "$b"): OCLP's original shim backed up to backup/Shim/$(sw_vers -buildVersion)/$b/"
+      fi
     fi
     cp "$HERE/build/shim/$b/impostor_dortania.dylib" "$SD/impostor_dortania.dylib" && cp "$HERE/build/shim/$b/impostor.dylib" "$SD/impostor.dylib" \
       || die "copy failed ($b)"

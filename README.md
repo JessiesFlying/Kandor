@@ -111,7 +111,7 @@ Start the Kandor menu and choose menu option **#1: "status"**. Every line should
 
 - **Turn off system sleep:** `sudo pmset -a sleep 0` (display sleep is fine). After waking from system sleep the
   displays can become unstable.
-- **Turn off HDR** on the monitors at the eGPU: with HDR on, the monitors keep flickering.
+- **Monitors at the eGPU flicker:** turn HDR off on them.
 - **Empty icons in the Dock** on the eGPU monitors after a fresh install: with only the eGPU monitors connected, clear
   the icon cache once:
   ```

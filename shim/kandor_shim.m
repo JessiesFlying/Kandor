@@ -3,16 +3,16 @@
 // Kandor (JessiesFlying, with assistance from Claude (Anthropic)) – macOS Tahoe
 // Navi (AMDRadeonX6000MTLDriver) path: ne1rom, with assistance from Claude (Anthropic)
 //
-// Built and installed by kandor.sh vega-patch as the new impostor.dylib of the eGPU's Metal driver bundle
+// Built and installed by kandor.sh shim-patch as the new impostor.dylib of each AMD Metal driver bundle with an OCLP shim
 // (AMDRadeonX5000MTLDriver.bundle for Vega, AMDRadeonX6000MTLDriver.bundle for Navi). It
 // re-exports Dortania's original, renamed to impostor_dortania.dylib, so the driver still gets every symbol of it
 // and Dortania's constructor (GPU registration, its own swizzles) runs before ours. Then it
 // (a) points the real_* pointers of all loaded shims back to Metal's own implementation (breaks the chain of the
-//     D300 and Vega shims in one process), and
+//     D300 and Vega/Navi shims in one process), and
 // (b) installs a dispatcher that gives the translated Monterey layout only to the D300 driver (Bronze) and the
-//     native struct to everyone else, the Vega driver included (as in ne1rom's Navi wrapper).
-// It also logs failing IOConnect calls to the Vega driver; the two user-client redirects themselves are done by
-// Kryptonite 1.2.0 in the kernel (see the IOConnect section).
+//     native struct to everyone else, the Vega and Navi drivers included (as in ne1rom's Navi wrapper).
+// It also logs failing IOConnect calls of the process; the two user-client redirects themselves are done by
+// Kryptonite in the kernel (X5000 from 1.2.0, X6000 from 1.3.0; see the IOConnect section).
 //
 // Log: /Users/Shared/kandor-shim.log (kept across reboots; fallback /tmp/kandor-shim.log).
 
@@ -107,7 +107,8 @@ static IMP DISP[] = {(IMP)disp0, (IMP)disp1, (IMP)disp2, (IMP)disp3, (IMP)disp4}
 // Tahoe removed ForceLegacyMode (0x102) from AMDRadeonX5000_AMDAccelSharedUserClient, so getIOSurfaceInfo moved
 // from 0x103 to 0x102. OCLP installs the old kernel driver; a caller using Tahoe's numbering hits ForceLegacyMode
 // (0 scalars) with 1 scalar and is rejected ("inputCount count mismatch 0x1 0x0"); likewise 0x105 with a 12-byte
-// packet (old 0x106 RsrcAndXorByteFlag). Kryptonite 1.2.0 redirects both in the kernel; the wrapper only logs
+// packet (old 0x106 RsrcAndXorByteFlag); the same for OCLP's old AMDRadeonX6000 (Navi). Kryptonite redirects both
+// in the kernel (X5000 from 1.2.0, X6000 from 1.3.0); the wrapper only logs
 // failing calls (kandor.sh status counts failing 0x102/0x105 calls since boot).
 typedef kern_return_t (*iocm_t)(mach_port_t, uint32_t, const uint64_t *, uint32_t, const void *, size_t,
                                 uint64_t *, uint32_t *, void *, size_t *);
