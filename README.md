@@ -20,17 +20,21 @@ For more info and help:
 
 > [!TIP]
 > Not every eGPU box gets along with the Mac Pro. Before you buy one, check [egpu.io](https://egpu.io) for boxes
-> that others have used successfully with Thunderbolt 2 Macs. Kandor was tested with a Razer Core X Chroma.
+> that others have used successfully with Thunderbolt 2 Macs. Kandor was tested with a Razer Core X Chroma and an
+> Akitio Node Titan.
 
 ## 🎮 Graphics cards
 
 | | Cards | AMD family |
 |---|---|---|
-| ✅ **Tested** | Radeon RX Vega 56 · Radeon RX 580 | Vega · Polaris |
-| 🟢 **Should work** (same drivers) | RX Vega 64 · Vega Frontier Edition · Radeon Pro WX 9100 · Radeon VII · RX 460 · RX 470 · RX 480 · RX 560 · RX 570 · RX 590 · Radeon Pro WX 4100 / 5100 / 7100 · R9 280X / 290 / 380 / 390 / Fury / Nano | Vega · Polaris · older GCN |
-| 🔜 **Coming soon** | RX 6800 · RX 6800 XT · RX 6900 XT | Navi (RDNA 2) |
-| 🟡 **Might work** with the Navi update | RX 5500 / 5600 / 5700 (XT) · RX 6600 (XT) | Navi (RDNA 1 and 2) |
+| ✅ **Tested** | Radeon RX Vega 56 · Radeon RX 580 · Radeon RX 6900 XT | Vega · Polaris · Navi (RDNA 2) |
+| 🟢 **Should work** (same drivers) | RX Vega 64 · Vega Frontier Edition · Radeon Pro WX 9100 · Radeon VII · RX 460 · RX 470 · RX 480 · RX 560 · RX 570 · RX 590 · Radeon Pro WX 4100 / 5100 / 7100 · R9 280X / 290 / 380 / 390 / Fury / Nano · RX 6800 · RX 6800 XT | Vega · Polaris · older GCN · Navi (RDNA 2) |
+| 🟡 **Might work** | RX 5500 / 5600 / 5700 (XT) · RX 6600 (XT) | Navi (RDNA 1 and 2) |
 | ❌ **Not supported** | RX 540 / 550 (most of them) · RX 580 2048SP · RX 590 GME · RX 6950 XT · RX 6900 XT "XTXH" models · RX 6650 XT · RX 6700 / 6750 XT · RX 6400 / 6500 XT · all RX 7000 and RX 9000 · NVIDIA · Intel Arc | Polaris · Navi (RDNA 2) · RDNA 3 and 4 · other brands |
+
+> [!NOTE]
+> **Navi cards: Monterey and Tahoe only.** On Ventura, Sonoma and Sequoia the card is detected but has no graphics
+> acceleration.
 
 ## 🚀 Setup
 
@@ -71,11 +75,11 @@ Skip this step on Monterey.
 In OCLP, click **Post-Install Root Patch** with the eGPU attached. If OCLP says the system is already patched, click
 **Revert Root Patches** first, restart and try again. Then restart.
 
-On **Tahoe with a Vega card**: shut down instead of restarting and go on with step 3a.
+On **Tahoe with a Vega or Navi card**: shut down instead of restarting and go on with step 3a.
 
-### 3a. Tahoe with a Vega card only
+### 3a. Tahoe with a Vega or Navi card only
 
-With the **eGPU unplugged**, start the Mac, start the Kandor menu and choose menu option **#4: "vega-patch"**. Then shut down, plug the eGPU back in, switch the box on and start the Mac.
+With the **eGPU unplugged**, start the Mac, start the Kandor menu and choose menu option **#4: "shim-patch"**. Then shut down, plug the eGPU back in, switch the box on and start the Mac.
 
 ### 4. Check
 
@@ -90,7 +94,7 @@ Start the Kandor menu and choose menu option **#1: "status"**. Every line should
 | After … | do this |
 |---|---|
 | OCLP **Build and Install OpenCore** | menu option **#3: "efi"** again |
-| an OCLP root patch or a macOS update | nothing – except on Tahoe with a Vega card: menu option **#4: "vega-patch"** again, with the eGPU unplugged |
+| an OCLP root patch or a macOS update | nothing – except on Tahoe with a Vega or Navi card: menu option **#4: "shim-patch"** again, with the eGPU unplugged |
 
 ## 📋 Menu
 
@@ -100,8 +104,21 @@ Start the Kandor menu and choose menu option **#1: "status"**. Every line should
 | **#1: "status"** | checks everything, changes nothing |
 | **#2: "log"** | collects error logs when something goes wrong, changes nothing |
 | **#3: "efi"** | installs Kandor into OpenCore |
-| **#4: "vega-patch"** | macOS Tahoe: installs the graphics fix for Vega cards |
-| **#5: "vega-patch-revert"** | macOS Tahoe: uninstalls the Vega graphics fix |
+| **#4: "shim-patch"** | macOS Tahoe: installs the graphics fix (Vega and Navi) |
+| **#5: "shim-patch-revert"** | macOS Tahoe: uninstalls the graphics fix (Vega and Navi) |
+
+## 💡 Tips for Tahoe with a Navi card
+
+- **Turn off system sleep:** `sudo pmset -a sleep 0` (display sleep is fine). After waking from system sleep the
+  displays can become unstable.
+- **Turn off HDR** on the monitors at the eGPU: with HDR on, the monitors keep flickering.
+- **Empty icons in the Dock** on the eGPU monitors after a fresh install: with only the eGPU monitors connected, clear
+  the icon cache once:
+  ```
+  sudo rm -rf /Library/Caches/com.apple.iconservices.store
+  rm -rf "$(getconf DARWIN_USER_CACHE_DIR)"{com.apple.dock.iconcache,com.apple.iconservices}
+  sudo launchctl kickstart -k system/com.apple.iconservices.iconservicesd; killall Dock
+  ```
 
 ## 🛟 If something goes wrong
 

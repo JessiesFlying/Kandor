@@ -52,6 +52,7 @@ He also noted: an AMD eGPU on a Mac with an internal NVIDIA GPU gives a black ex
 
 ## Scope of Kandor
 - Mac Pro (Late 2013, MacPro6,1) only
-- AMD eGPUs only (tested: Radeon RX Vega 56 and RX 580 in a Razer Core X Chroma); NVIDIA is not supported
+- AMD eGPUs only (tested: Radeon RX Vega 56 and RX 580 in a Razer Core X Chroma, Radeon RX 6900 XT in an Akitio
+  Node Titan); NVIDIA is not supported; Navi cards on Monterey and Tahoe only
 - eGPU on a lower Thunderbolt 2 port (Bus 0), cold boot only; the upper ports hang the firmware at boot
-- macOS Monterey to Tahoe with OCLP 2.5.1 / 3.0.0-rc.5 (Tahoe: 3.0.0-rc.5, Vega shim wrapper, eGPU attached at boot)
+- macOS Monterey to Tahoe with OCLP 2.5.1 / 3.0.0-rc.5 (Tahoe: 3.0.0-rc.5, shim wrapper for Vega and Navi, eGPU attached at boot)
