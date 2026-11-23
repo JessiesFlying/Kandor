@@ -27,7 +27,7 @@ For more info and help:
 
 | | Cards | AMD family |
 |---|---|---|
-| ✅ **Tested** | Radeon RX Vega 56 · Radeon RX 580 · Radeon RX 6900 XT | Vega · Polaris · Navi (RDNA 2) |
+| ✅ **Tested** | Radeon RX Vega 56 · Radeon RX 580 · Radeon RX 6900 XT (Tahoe) | Vega · Polaris · Navi (RDNA 2) |
 | 🟢 **Should work** (same drivers) | RX Vega 64 · Vega Frontier Edition · Radeon Pro WX 9100 · Radeon VII · RX 460 · RX 470 · RX 480 · RX 560 · RX 570 · RX 590 · Radeon Pro WX 4100 / 5100 / 7100 · R9 280X / 290 / 380 / 390 / Fury / Nano · RX 6800 · RX 6800 XT | Vega · Polaris · older GCN · Navi (RDNA 2) |
 | 🟡 **Might work** | RX 5500 / 5600 / 5700 (XT) · RX 6600 (XT) | Navi (RDNA 1 and 2) |
 | ❌ **Not supported** | RX 540 / 550 (most of them) · RX 580 2048SP · RX 590 GME · RX 6950 XT · RX 6900 XT "XTXH" models · RX 6650 XT · RX 6700 / 6750 XT · RX 6400 / 6500 XT · all RX 7000 and RX 9000 · NVIDIA · Intel Arc | Polaris · Navi (RDNA 2) · RDNA 3 and 4 · other brands |
@@ -82,7 +82,8 @@ box on, then start the Mac.
 
 Skip this step on Monterey.
 
-In OCLP, click **Post-Install Root Patch** with the eGPU attached. If OCLP says the system is already patched, click
+In OCLP, click **Post-Install Root Patch** with the eGPU attached. Open OCLP yourself – it doesn't prompt for a new
+card. It lists every patch for this Mac, also those already installed: just click **Start Root Patching**. If OCLP says the system is already patched, click
 **Revert Root Patches** first, restart and try again. When OCLP has finished, restart – except on **Tahoe with a
 Vega or Navi card**: there **don't restart yet** and go on with step 3a.
 
@@ -141,8 +142,8 @@ Kandor creates the folders `backup` and `logs` next to `kandor.sh`. They stay on
 
 ## ❤️ Credits
 
-Kryptonite by mayankk2308 and mac_editor (with patches by goalque and rgov) · Kryptonite for Sequoia and Tahoe by
-ne1rom, with assistance from Claude (Anthropic) · Kandor by JessiesFlying, with assistance from Claude (Anthropic) ·
+Kryptonite by mayankk2308 and mac_editor (with patches by goalque and rgov) · Original concept, Kryptonite for
+Sequoia and Tahoe and Navi support on Tahoe by ne1rom, with assistance from Claude (Anthropic) · Kandor by JessiesFlying, with assistance from Claude (Anthropic) ·
 OpenCore and Lilu by acidanthera · OpenCore Legacy Patcher by Dortania.
 
 Who did which part: [AUTHORS](AUTHORS) · licenses: [LICENSE-NOTES.md](LICENSE-NOTES.md) · Kandor is GPL-3.0
