@@ -118,6 +118,21 @@ EOF
 # --------------------------------------------------------------- helpers ---
 count_hex() { [ -f "$2" ] || { echo 0; return; }; perl -0777 -ne 'BEGIN{$p=pack("H*",shift @ARGV)} $n=()=/\Q$p\E/g; print $n+0' "$1" "$2" 2>/dev/null || echo 0; }
 kernel_major() { uname -r | cut -d. -f1; }
+boot_epoch() { sysctl -n kern.boottime 2>/dev/null | sed -E 's/^\{ sec = ([0-9]+),.*/\1/'; }
+# 0 = the system snapshot that boots next is not the running one: OCLP's root patch or menu 4 waits for a restart
+restart_pending() {
+  local cur sl i=0 r u
+  cur=$(diskutil info -plist / 2>/dev/null | plutil -extract APFSSnapshotUUID raw -o - - 2>/dev/null) || return 1
+  sl=$(diskutil apfs listSnapshots -plist / 2>/dev/null) || return 1
+  while r=$(printf '%s' "$sl" | plutil -extract "Snapshots.$i.RootTo" raw -o - - 2>/dev/null); do
+    if [ "$r" = true ]; then
+      u=$(printf '%s' "$sl" | plutil -extract "Snapshots.$i.SnapshotUUID" raw -o - - 2>/dev/null)
+      [ -n "$u" ] && [ "$u" != "$cur" ]; return
+    fi
+    i=$((i+1))
+  done
+  return 1
+}
 is_navi() { case "$1" in 731f|7340|73bf|73ff) return 0;; *) return 1;; esac; }   # Navi cards in Apple's drivers (device-id)
 os_name() { case "$(kernel_major)" in 21) echo Monterey;; 22) echo Ventura;; 23) echo Sonoma;; 24) echo Sequoia;; 25) echo Tahoe;; *) echo "kernel $(kernel_major)";; esac; }
 pl() { local v; v=$(plutil -extract "$1" raw -o - "$2" 2>/dev/null) || return 1; printf '%s\n' "$v"; }   # pl KEYPATH FILE -> value
@@ -135,14 +150,19 @@ gpuwrangler_style() {
 # --------------------------------------------------------------- status ---
 do_status() {
   step "System"
-  local model; model=$(sysctl -n hw.model 2>/dev/null)
+  local model pend=0; model=$(sysctl -n hw.model 2>/dev/null)
+  restart_pending && pend=1
   [ "$model" = "MacPro6,1" ] && ok "Mac: $model" || warn "Mac: $model (Kandor is made for MacPro6,1)"
   ok "macOS $(sw_vers -productVersion) ($(sw_vers -buildVersion)), $(os_name), kernel $(uname -r)"
   local ocv rpv; ocv=$(nvram "$OC_GUID:OCLP-Version" 2>/dev/null | cut -f2- | sed 's/%00//g')
   [ -n "$ocv" ] && ok "Booted through OpenCore built by OCLP $ocv" || warn "No OCLP-Version in NVRAM (not booted through an OCLP-built OpenCore?)"
   rpv=$(pl "OpenCore Legacy Patcher" /System/Library/CoreServices/OpenCore-Legacy-Patcher.plist)
+  [ "$pend" = 1 ] && warn "A restart is pending: OCLP's root patch or menu 4 (shim-patch) is already on the system volume; the lines
+    below show the system as it runs now. Tahoe with a Vega or Navi card: menu 4 first if not done yet, then restart."
   if [ "$(kernel_major)" -ge 22 ]; then
-    [ -n "$rpv" ] && ok "OCLP root patches installed ($rpv)" || bad "No OCLP root patches on this macOS: run OCLP → Post-Install Root Patch (with the eGPU attached)"
+    if [ -n "$rpv" ]; then ok "OCLP root patches installed ($rpv)"
+    elif [ "$pend" = 1 ]; then info "OCLP root patches: not active until the restart"
+    else bad "No OCLP root patches on this macOS: run OCLP → Post-Install Root Patch (with the eGPU attached)"; fi
   else info "Monterey: no OCLP root patches needed"; fi
   local ba; ba=$(nvram boot-args 2>/dev/null | cut -f2-)
   case " $ba " in *" krygpu=AMD "*) ok "boot-args contain krygpu=AMD";; *) bad "boot-args lack krygpu=AMD → menu 3 (efi)";; esac
@@ -159,6 +179,7 @@ do_status() {
   # Kryptonite uses the older GPUWrangler pattern up to kernel 22 and the newer one from 23 on
   case "$(kernel_major)/$gw" in
     21/old|21/both|22/old|22/both|23/new|23/both|24/new|24/both|25/new|25/both) ok "AppleGPUWrangler matches the Kryptonite patch";;
+    */unknown) info "AppleGPUWrangler is inside the kernel collection (no file to check): see the PlatformSupportsExternalGPUs line";;
     *) bad "AppleGPUWrangler: unexpected pattern ($gw) for kernel $(kernel_major) – the Kryptonite patch will not apply";;
   esac
   # the state itself (ne1rom): Kryptonite's GPUWrangler patch from kernel 23 on makes PlatformSupportsExternalGPUs true
@@ -197,14 +218,19 @@ do_status() {
     # Polaris/Vega: AMD<n>Controller; Navi: AMDRadeonX6000_AmdRadeonController<chip>
     if ioreg -r -n display@0 -d 2 -w0 2>/dev/null | grep -qE "class (AMD[0-9]+Controller|AMDRadeonX[0-9]+_AmdRadeonController)"; then ok "AMD driver attached to the eGPU"
     elif [ "$(kernel_major)" = 25 ] && is_navi "$dev" && [ "$(count_hex 4881fa044000007562 /System/Library/Extensions/AMDRadeonX6000Framebuffer.kext/Contents/MacOS/AMDRadeonX6000Framebuffer)" = 0 ]; then
-      info "no AMD driver attached yet: Kryptonite holds Apple's own Navi driver off until OCLP's Navi patch is installed → OCLP → Post-Install Root Patch (\"AMD Navi\"), then menu 4 (shim-patch) before restarting"
+      if [ "$pend" = 1 ]; then info "no AMD driver attached yet: Kryptonite holds Apple's own Navi driver off until OCLP's Navi patch is active (after the restart)"
+      else info "no AMD driver attached yet: Kryptonite holds Apple's own Navi driver off until OCLP's Navi patch is installed → OCLP → Post-Install Root Patch (\"AMD Navi\"), then menu 4 (shim-patch) before restarting"; fi
     else bad "AMD driver not attached (System Information: driver installed = no) → Kryptonite patch missing or OCLP root patch missing"; fi
   fi
   # displaypolicyd keeps one log per GPU, named after its PCI address (the Vega's changes between boots/ports)
   local lf="/var/log/displaypolicy/displaypolicyd.$pci.log"; [ -n "$pci" ] && [ -f "$lf" ] || lf=""
   if [ -n "$lf" ] && [ -n "$dev" ]; then
-    local last; last=$(grep -E "Do online device.*(completed|not completed)|To errorQ" "$lf" | tail -1)
+    local last lt; last=$(grep -E "Do online device.*(completed|not completed)|To errorQ" "$lf" | tail -1)
+    # the log survives restarts: only an attempt of this boot counts
+    lt=$(date -j -f "%Y-%m-%d %H:%M:%S" "$(printf '%s' "$last" | cut -c1-19)" +%s 2>/dev/null)
+    [ -n "$lt" ] && [ -n "$(boot_epoch)" ] && [ "$lt" -lt "$(boot_epoch)" ] && last="before-boot"
     case "$last" in
+      before-boot) info "Display policy: no 'online' attempt in this boot yet ($(basename "$lf"))";;
       *"- completed"*) ok "Display policy: last 'online' attempt completed (picture expected)";;
       *errorQ*|*"not completed"*) bad "Display policy: last 'online' attempt failed → menu 2 (log)";;
       *) info "Display policy log: no online attempt yet ($(basename "$lf"))";;
@@ -229,7 +255,8 @@ do_status() {
     done
     case "$nf" in
       4) ok "AMDRadeonX6000Framebuffer: OCLP's Navi build, Kryptonite's Navi display fix matches";;
-      0) bad "AMDRadeonX6000Framebuffer: not OCLP's Navi build → OCLP → Post-Install Root Patch (\"AMD Navi\") with the eGPU attached";;
+      0) if [ "$pend" = 1 ]; then info "AMDRadeonX6000Framebuffer: Apple's own until the restart"
+         else bad "AMDRadeonX6000Framebuffer: not OCLP's Navi build → OCLP → Post-Install Root Patch (\"AMD Navi\") with the eGPU attached"; fi;;
       *) bad "AMDRadeonX6000Framebuffer: unknown build ($nf of 4 patterns) – the Navi display fix will not apply, menu 2 (log)";;
     esac
   fi
@@ -292,7 +319,7 @@ shim_status() {
     d="/$(shim_rel "$b")"; t="$(shim_family "$b") ($b)"
     if shim_is_ours "$d/impostor.dylib"; then
       if shim_is_current "$d/impostor.dylib"; then ok "$t: Kandor's shim wrapper installed"
-      else warn "$t: an older build of the shim wrapper → menu 4 (shim-patch) with the eGPU unplugged"; fi
+      else warn "$t: an older build of the shim wrapper → menu 4 (shim-patch)"; fi
       [ -f "$d/impostor_dortania.dylib" ] || bad "$t: impostor_dortania.dylib missing next to the wrapper!"
     else warn "$t: OCLP's original shim installed: boot with the eGPU attached will hang → menu 4 (shim-patch)"; fi
     [ -f "$(shim_backup "$b")" ] && ok "$t: backup of OCLP's shim for $(sw_vers -buildVersion) in backup/Shim/" \
@@ -306,24 +333,24 @@ shim_snapshot() {
 shim_build() { # shim_build BUNDLE: builds the wrapper for one bundle (from the mounted system volume) into build/shim/BUNDLE/
   local b="$1" rel src BD="$HERE/build/shim/$1"; rel=$(shim_rel "$b")
   src="$MNT/$rel/impostor.dylib"; shim_is_ours "$src" && src="$MNT/$rel/impostor_dortania.dylib"
-  [ -f "$src" ] || die "OCLP's impostor.dylib not found in $b"
+  [ -f "$src" ] || die_umount "OCLP's impostor.dylib not found in $b"
   rm -rf "$BD"; mkdir -p "$BD"; cp "$src" "$BD/impostor_dortania.dylib"
   # its own install name must point to the renamed file, or the re-export would load the wrapper itself
-  install_name_tool -id "/$rel/impostor_dortania.dylib" "$BD/impostor_dortania.dylib" 2>>"$LOG" || die "install_name_tool failed ($b)"
+  install_name_tool -id "/$rel/impostor_dortania.dylib" "$BD/impostor_dortania.dylib" 2>>"$LOG" || die_umount "install_name_tool failed ($b)"
   codesign -f -s - "$BD/impostor_dortania.dylib" >>"$LOG" 2>&1
   ( cd "$BD" && xcrun clang -arch x86_64 -dynamiclib -fno-objc-arc -O2 \
       -install_name "/$rel/impostor.dylib" -Wl,-reexport_library,./impostor_dortania.dylib \
       -framework Foundation -Wno-deprecated-declarations -o impostor.dylib "$HERE/shim/kandor_shim.m" ) >>"$LOG" 2>&1 \
-    || die "build failed for $b (see the log; grep for 'error:')"
+    || die_umount "build failed for $b (see the log; grep for 'error:')"
   codesign -f -s - -i impostor "$BD/impostor.dylib" >>"$LOG" 2>&1
-  otool -L "$BD/impostor.dylib" 2>>"$LOG" | grep -q "/$rel/impostor_dortania.dylib" || die "re-export of impostor_dortania.dylib missing in the build ($b)"
+  otool -L "$BD/impostor.dylib" 2>>"$LOG" | grep -q "/$rel/impostor_dortania.dylib" || die_umount "re-export of impostor_dortania.dylib missing in the build ($b)"
   ok "built for $(shim_family "$b") ($b, $(lipo -archs "$BD/impostor.dylib"))"
 }
 do_shim_patch() { # [after-efi]: called by efi, which has just installed Kryptonite (not loaded before the reboot)
   need_tahoe
   local b targets bk SD kv
   step "Build the Metal shim wrapper"
-  # order: menu 3 (efi) → reboot → OCLP root patch with the eGPU attached → shut down, unplug the eGPU → menu 4
+  # order: menu 3 (efi) → boot with the eGPU attached → OCLP root patch → menu 4, before restarting (the eGPU stays attached)
   if [ "${1:-}" != after-efi ]; then
     kv=$(kry_loaded | grep -oE '\([0-9.]+\)' | head -1 | tr -d '()')
     [ "$kv" = "$KRY_VERSION" ] || die "Kryptonite $KRY_VERSION is not running${kv:+ (loaded: $kv)} – first menu 3 (efi), then reboot"
