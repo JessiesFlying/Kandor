@@ -22,8 +22,8 @@ The `backup/` folder is created locally by the script and must never be publishe
 `mayankk2308/kryptonite` `6e97e36` plus patches 1–9 in `src/`: ne1rom's five (`kandor-sequoia-24G720.patch`,
 `kandor-tahoe-25G241.patch`, Navi display fix, Navi user-client redirects and holding Apple's Navi driver off until
 OCLP's Navi patch, for Tahoe) and Kandor's four (Sonoma
-threshold, AMDSupport display fix in memory, X5000 user-client redirects for Tahoe, version). Binary md5 and tests:
-added with the release build.
+threshold, AMDSupport display fix in memory, X5000 user-client redirects for Tahoe, version). Binary md5
+`69990739914d3e69294d5253c7238caa` (built 23 Nov 2026); tests: added after the Vega and Navi retests.
 
 Earlier builds are no longer shipped: 1.2.0 (patches 1–6, no Navi; md5 `f95cb8769554439ff91828d957884ddf`, tested on
 21 Nov 2026 on Monterey 12.7.6, Sonoma 14.8.9, Sequoia 15.8.1 and Tahoe 26.7.2 with an RX Vega 56) and 1.1.0
