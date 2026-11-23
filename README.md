@@ -14,12 +14,12 @@ For more info and help:
 ## 🧰 What you need
 
 - A **Mac Pro (Late 2013)** running macOS Monterey (12), Ventura (13), Sonoma (14), Sequoia (15) or Tahoe (26)
-- A Thunderbolt 2 cable and the original **Apple Thunderbolt 2 to Thunderbolt 3 (USB-C) Adapter** (not a third-party one)
-- A **Thunderbolt 3 eGPU box**
-- A supported **AMD graphics card** (table below)
 - A monitor on the Mac Pro's own ports (HDMI, or a Thunderbolt port with a Mini DisplayPort cable). You need it until
   Kandor is set up, and it's the only screen that shows the OpenCore boot menu and the Apple logo: the eGPU monitors
   only turn on at the login screen.
+- A Thunderbolt 2 cable and the original **Apple Thunderbolt 2 to Thunderbolt 3 (USB-C) Adapter** (not a third-party one)
+- A **Thunderbolt 3 eGPU box**
+- A supported **AMD graphics card** (table below)
 
 > [!TIP]
 > Not every eGPU box gets along with the Mac Pro. Before you buy one, check [egpu.io](https://egpu.io) for boxes
