@@ -34,7 +34,7 @@ Earlier builds are no longer shipped: 1.2.0 (patches 1–6, no Navi; md5 `f95cb8
 - mayankk2308 & mac_editor: Kryptonite; goalque: NVIDIA eGFX support; rgov: Ti82 patches (adapted by mac_editor)
 - ne1rom, with assistance from Claude (Anthropic): Kryptonite for macOS Sequoia and Tahoe; Navi on Tahoe (AGDC fix for
   the Navi framebuffer, user-client redirects for AMDRadeonX6000, holding Apple's Navi driver off until OCLP's Navi
-  patch, Navi path in the shim wrapper)
+  patch, Navi path in the shim wrapper, Navi support in kandor.sh)
 - JessiesFlying, with assistance from Claude (Anthropic): Kryptonite for Ventura & Sonoma (one build for Monterey to Tahoe), the AMDSupport fix for
   eGPU display output, the Tahoe user-client redirects and Vega Metal shim wrapper, Kandor
 

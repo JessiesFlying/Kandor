@@ -94,10 +94,13 @@ ${B}Credits${R}
 
   ${B}Navi on macOS Tahoe${R}
   - ne1rom, with assistance from Claude (Anthropic), for:
-     * the display fix for OCLP's Navi framebuffer and the Navi user-client redirects (Kryptonite)
+     * the display fix for OCLP's Navi framebuffer, the Navi user-client redirects and holding
+       Apple's own Navi driver off until OCLP's Navi patch is installed (Kryptonite)
      * the Navi path in the Metal shim wrapper
+     * Navi support in this script (shim-patch for Vega and Navi without unplugging the eGPU,
+       Navi checks in status)
 
-  ${B}Kryptonite $KRY_VERSION and Kandor${R} (macOS Monterey to Tahoe)
+  ${B}Kryptonite for Ventura & Sonoma and Kandor${R} (macOS Monterey to Tahoe)
   - JessiesFlying, with assistance from Claude (Anthropic), for:
      * adapting Kryptonite for macOS Ventura & Sonoma (one build for Monterey to Tahoe)
      * fixing OpenCore Legacy Patcher's AMD graphics driver (AMDSupport) for eGPU display output

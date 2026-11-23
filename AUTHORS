@@ -10,7 +10,8 @@ ne1rom, with assistance from Claude (Anthropic)
                           AMDRadeonX6000Framebuffer (src/kandor-navi-agdc.patch), user-client redirects
                           for AMDRadeonX6000 (src/kandor-navi-selectors.patch), holding Apple's Navi
                           driver off until OCLP's Navi patch (src/kandor-navi-hold.patch), Navi path in
-                          shim/kandor_shim.m
+                          shim/kandor_shim.m, Navi support in kandor.sh (shim-patch for Vega and Navi
+                          without unplugging the eGPU, Navi checks in status)
 
 JessiesFlying, with assistance from Claude (Anthropic)
                           Kryptonite for Ventura & Sonoma (src/kandor-sonoma-threshold.patch),
