@@ -609,7 +609,11 @@ do_efi() {
 
   step "Result"
   kry_entries "$CFG" | while IFS='|' read -r i bp mn mx en; do ok "$bp  kernel $mn – $mx"; done
-  [ "${EFI_MOUNTED_BY_US:-0}" = 1 ] && ask "Unmount the EFI partition?" && diskutil unmount "$EFI_DEV" >/dev/null && ok "EFI unmounted"
+  # unmount what efi mounted itself (no question); a partition that was already mounted stays as it was
+  if [ "${EFI_MOUNTED_BY_US:-0}" = 1 ]; then
+    if diskutil unmount "$EFI_DEV" >/dev/null 2>&1; then ok "EFI unmounted"
+    else info "EFI still mounted (in use, e.g. by Spotlight) – harmless, it is unmounted at the next restart"; fi
+  fi
   printf "\n\n  ${GRN}${B}Done.${R} The EFI change takes effect at the next boot.\n"
   # what comes next on this macOS
   if [ "$(kernel_major)" = 25 ]; then
