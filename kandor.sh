@@ -211,7 +211,12 @@ do_status() {
   esac
   local ven; ven=$(echo "$node" | grep -m1 '"vendor-id"' | grep -oE '<[0-9a-f]+>' | cut -c2-5)
   [ -n "$ven" ] && [ "$ven" != "0210" ] && bad "eGPU vendor is not AMD (vendor-id $ven): Kandor supports AMD eGPUs only"
+  # unplugged or "Disconnect"ed while running: macOS keeps a dead display@0 (inactive, same device-id) until a restart
+  local gone=0; echo "$node" | grep -m1 -E '^\+-o display@0' | grep -q ' inactive' && gone=1
   if [ -z "$dev" ]; then bad "No eGPU found (display@0). Box powered? Bottom Thunderbolt port? Kryptonite loaded?"
+  elif [ "$gone" = 1 ]; then
+    bad "The eGPU was unplugged or disconnected while the Mac was running ($name). It can't come back until a restart:
+    shut down, check that the eGPU is plugged in and on, then start the Mac."
   else
     pci=$(echo "$node" | grep -m1 '"pcidebug"' | grep -oE '"[0-9]+:[0-9]+:[0-9]+' | tr -d '"')
     ok "eGPU found: $name  (PCI $pci)"
@@ -226,7 +231,7 @@ do_status() {
   fi
   # displaypolicyd keeps one log per GPU, named after its PCI address (the Vega's changes between boots/ports)
   local lf="/var/log/displaypolicy/displaypolicyd.$pci.log"; [ -n "$pci" ] && [ -f "$lf" ] || lf=""
-  if [ -n "$lf" ] && [ -n "$dev" ]; then
+  if [ -n "$lf" ] && [ -n "$dev" ] && [ "$gone" = 0 ]; then
     local last lt; last=$(grep -E "Do online device.*(completed|not completed)|To errorQ" "$lf" | tail -1)
     # the log survives restarts: only an attempt of this boot counts
     lt=$(date -j -f "%Y-%m-%d %H:%M:%S" "$(printf '%s' "$last" | cut -c1-19)" +%s 2>/dev/null)
@@ -401,7 +406,7 @@ do_shim_patch() { # [after-efi]: called by efi, which has just installed Krypton
   done
   touch "$SHIM_LOG" && chmod 666 "$SHIM_LOG" && echo "---- install shim-patch ($(echo $targets)) $(date)" >> "$SHIM_LOG"
   shim_snapshot
-  if ioreg -r -n display@0 -d 1 2>/dev/null | grep -q IOPCIDevice; then
+  if ioreg -r -n display@0 -d 1 2>/dev/null | grep 'IOPCIDevice' | grep -qv ' inactive'; then
     printf "\n  ${GRN}${B}Done.${R} Restart (the eGPU stays attached). Afterwards: menu 1 (status); if something is wrong: menu 2 (log).\n"
   else
     printf "\n  ${GRN}${B}Done.${R} Shut down, attach the eGPU, boot. Afterwards: menu 1 (status); if something is wrong: menu 2 (log).\n"

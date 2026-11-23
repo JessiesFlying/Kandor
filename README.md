@@ -40,8 +40,9 @@ For more info and help:
 
 > [!IMPORTANT]
 > **Always switch the eGPU box on first, then the Mac.** Never plug in, unplug or switch on the eGPU while the Mac
-> starts up or runs – the Mac freezes. To change something, shut the Mac down first. Don't use "Disconnect" in the
-> menu bar either.
+> starts up or runs. To change something, shut the Mac down first. Don't use "Disconnect" in the menu bar either.
+> Unplugging while the Mac runs logs you out after a few minutes (unsaved work is lost); "Disconnect" crashes the
+> Mac. Either way the eGPU stays gone until a restart.
 
 ### 0. Monterey only: install OpenCore
 
@@ -134,6 +135,10 @@ Start the Kandor menu and choose menu option **#1: "status"**. Every line should
 
 - **The Mac hangs while starting:** hold the power button until it turns off, unplug the eGPU and start the Mac
   again (or pick another macOS in the OpenCore boot menu).
+- **The eGPU was unplugged or "Disconnect"ed while the Mac was running:** the picture freezes or only the mouse
+  pointer moves. Wait about 3 minutes – usually the login screen comes back (the eGPU stays off until a restart). If
+  nothing changes, hold the power button until the Mac turns off. Then plug the eGPU in, switch it on and start the
+  Mac.
 - **No picture on the eGPU:** choose menu option **#1: "status"** – the lines marked ✗ or ! tell you what to do.
 - **Still stuck:** choose menu option **#2: "log"** and share the new folder in `logs` when you ask for help on the
   [JessiesFlying Discord server](https://discord.gg/rAhpJNqaKS).
