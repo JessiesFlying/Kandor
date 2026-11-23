@@ -1,3 +1,5 @@
+<p align="center"><img src="logo/kandor-logo.png" alt="Kandor logo" width="300"></p>
+
 # Kandor - a whole new world in the cylinder
 
 **External Graphic Cards for the Mac Pro 2013 "Trash Can".**
