@@ -17,6 +17,9 @@ For more info and help:
 - A Thunderbolt 2 cable and the original **Apple Thunderbolt 2 to Thunderbolt 3 (USB-C) Adapter** (not a third-party one)
 - A **Thunderbolt 3 eGPU box**
 - A supported **AMD graphics card** (table below)
+- A monitor on the Mac Pro's own ports (HDMI, or a Thunderbolt port with a Mini DisplayPort cable). You need it until
+  Kandor is set up, and it's the only screen that shows the OpenCore boot menu and the Apple logo: the eGPU monitors
+  only turn on at the login screen.
 
 > [!TIP]
 > Not every eGPU box gets along with the Mac Pro. Before you buy one, check [egpu.io](https://egpu.io) for boxes
@@ -51,6 +54,12 @@ OCLP first. On Ventura and later it's needed to run macOS anyway.
 
 ### 1. Install Kandor
 
+On **Tahoe with a Vega or Navi card**, first install Apple's Command Line Tools:
+
+```
+xcode-select --install
+```
+
 Download **Kandor.zip** from the [latest release](https://github.com/JessiesFlying/Kandor/releases/latest) and unzip
 it (for example in Downloads). Open Terminal, go into the folder and start the Kandor menu:
 
@@ -61,12 +70,6 @@ sudo bash kandor.sh
 
 Then choose menu option **#3: "efi"**. It asks before it changes anything and keeps a backup of your EFI.
 
-On **Tahoe with a Vega or Navi card**, also install Apple's Command Line Tools now (menu option #4 needs them):
-
-```
-xcode-select --install
-```
-
 ### 2. Shut down and attach the eGPU
 
 Shut down the Mac, connect the eGPU to one of the **two lower Thunderbolt ports** (the pair next to HDMI), switch the
@@ -76,8 +79,8 @@ box on, then start the Mac.
 > The upper Thunderbolt ports don't work for the eGPU: with the eGPU there, the Mac doesn't start (no chime).
 
 > [!IMPORTANT]
-> **Tahoe with a Navi card:** also connect a monitor to the Mac's own **HDMI port**. The Navi card shows no picture
-> until step 3a is done and the Mac has restarted.
+> **Tahoe with a Navi card:** the Navi card shows no picture until step 3a is done and the Mac has restarted – use
+> the monitor on the Mac Pro's own ports until then.
 
 ### 3. Install the graphic drivers
 
@@ -100,7 +103,7 @@ sudo bash kandor.sh
 
 Start the Kandor menu and choose menu option **#1: "status"**. Every line should show a green ✓. 🎉
 
-## 🔁 What to do after updating
+## 🔁 What to do after updating macOS or OCLP
 
 | After … | do this |
 |---|---|
@@ -135,7 +138,7 @@ Start the Kandor menu and choose menu option **#1: "status"**. Every line should
 
 - **The Mac hangs while starting:** hold the power button until it turns off, unplug the eGPU and start the Mac
   again (or pick another macOS in the OpenCore boot menu).
-- **The eGPU was unplugged or "Disconnect"ed while the Mac was running:** the picture freezes or only the mouse
+- **The eGPU was unplugged or disconnected via the menu bar while the Mac was running:** the picture freezes or only the mouse
   pointer moves. Wait about 3 minutes – usually the login screen comes back (the eGPU stays off until a restart). If
   nothing changes, hold the power button until the Mac turns off. Then plug the eGPU in, switch it on and start the
   Mac.
