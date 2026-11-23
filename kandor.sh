@@ -10,23 +10,27 @@
 #           sudo bash kandor.sh log                collect the logs into logs/log-<date>/ (read-only)
 #           sudo bash kandor.sh efi                install / update Kandor in the EFI
 #  Tahoe only:
-#           sudo bash kandor.sh vega-patch         build + install the Vega Metal shim wrapper (shim/kandor_shim.m)
-#           sudo bash kandor.sh vega-patch-revert  put OCLP's original shim back
+#           sudo bash kandor.sh shim-patch         build + install the Metal shim wrapper (shim/kandor_shim.m) for
+#                                                  Vega and Navi, into every AMD Metal driver where OCLP put its shim
+#           sudo bash kandor.sh shim-patch-revert  put OCLP's original shims back
 #
-#  Only standard macOS tools are used (plutil, diskutil, perl, md5, kmutil, bless); vega-patch also needs the
+#  Only standard macOS tools are used (plutil, diskutil, perl, md5, kmutil, bless); shim-patch also needs the
 #  Command Line Tools (xcode-select --install).
 #  Every change asks for confirmation, makes a backup first and is logged to ./logs/ (read-only commands write no log).
 # =============================================================================
 
 KANDOR_VERSION="1.0.0"
-KRY_VERSION="1.2.0"                # the one Kryptonite build of Kandor: kernel 21–25 (Monterey to Tahoe)
+KRY_VERSION="1.3.0"                # the one Kryptonite build of Kandor: kernel 21–25 (Monterey to Tahoe)
 KRY_MAXKERNEL="25.99.99"; KRY_RANGE="Monterey to Tahoe"
-SHIM_REL="System/Library/Extensions/AMDRadeonX5000MTLDriver.bundle/Contents/MacOS"   # OCLP's Vega Metal shim lives here
+# OCLP's Metal shims on Tahoe: Vega (AMDRadeonX5000MTLDriver) and Navi (AMDRadeonX6000MTLDriver). The wrapper is
+# installed into every bundle that has one (the eGPU is unplugged then, so the card can't be detected); each copy is
+# only loaded when its own driver is in use.
+SHIM_BUNDLES="AMDRadeonX5000MTLDriver AMDRadeonX6000MTLDriver"
 SHIM_LOG=/Users/Shared/kandor-shim.log
 KRY_KEXT="Kryptonite-$KRY_VERSION.kext"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 KEXTS="$HERE/Kexts"
-BACKUP="$HERE/backup"            # backup/EFI/EFI-<date>, backup/Shim/<build>/ – local only
+BACKUP="$HERE/backup"            # backup/EFI/EFI-<date>, backup/Shim/<build>/<bundle>/ – local only
 OC_GUID="4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102"
 APPLE_GUID="7C436110-AB2A-4BBB-A880-FE41995C9F82"
 MNT=/System/Volumes/Update/mnt1
@@ -58,14 +62,15 @@ banner() {
   printf "  macOS Monterey – Tahoe with OpenCore Legacy Patcher\n"
   printf "  ${B}${CYN}%s${R}\n" "$rule"
   [ "$(kernel_major)" = 25 ] && printf "  ${YEL}Tahoe:${R} menu 4–5, see README (Tahoe)\n"
-  printf "  ${YEL}Supported for now:${R} MacPro6,1 only · ${B}AMD${R} eGPUs only (tested: RX Vega 56, RX 580)\n"
+  printf "  ${YEL}Supported for now:${R} MacPro6,1 only · ${B}AMD${R} eGPUs only (tested: RX Vega 56, RX 580, RX 6900 XT)\n"
   printf "                     eGPU on a ${B}lower${R} Thunderbolt 2 port (the upper ports hang at boot)\n"
   printf "  ${YEL}Cold boot only:${R} eGPU attached and powered on ${B}before${R} the Mac starts. Never power it on,\n"
   printf "                  plug it in or unplug it while the Mac boots or runs.\n\n"
   printf "  ${D}OpenCore & Lilu by acidanthera · OCLP by Dortania\n"
   printf "  Kryptonite (GPL-3.0) by mayankk2308 & mac_editor\n"
   printf "  Sequoia/Tahoe fork by ne1rom\n"
-  printf "  Ventura/Sonoma adaptation, AMD driver fix, Tahoe Vega support and Kandor by JessiesFlying${R}\n"
+  printf "  Ventura/Sonoma adaptation, AMD driver fix, Tahoe Vega support and Kandor by JessiesFlying\n"
+  printf "  Navi on Tahoe by ne1rom${R}\n"
 }
 
 credits() {
@@ -87,7 +92,12 @@ ${B}Credits${R}
   ${B}Kryptonite for macOS Sequoia and Tahoe${R}
   - ne1rom, with assistance from Claude (Anthropic)
 
-  ${B}Kryptonite 1.2.0 and Kandor${R} (macOS Monterey to Tahoe)
+  ${B}Navi on macOS Tahoe${R}
+  - ne1rom, with assistance from Claude (Anthropic), for:
+     * the display fix for OCLP's Navi framebuffer and the Navi user-client redirects (Kryptonite)
+     * the Navi path in the Metal shim wrapper
+
+  ${B}Kryptonite $KRY_VERSION and Kandor${R} (macOS Monterey to Tahoe)
   - JessiesFlying, with assistance from Claude (Anthropic), for:
      * adapting Kryptonite for macOS Ventura & Sonoma (one build for Monterey to Tahoe)
      * fixing OpenCore Legacy Patcher's AMD graphics driver (AMDSupport) for eGPU display output
@@ -97,7 +107,7 @@ ${B}Credits${R}
 ${B}Licenses${R}
   - OpenCore and Lilu: BSD-3-Clause. OCLP: BSD-4-Clause for its own files, its bundled
     components under their own licenses. None of them is included in Kandor.
-  - Kryptonite: GPL-3.0. Kryptonite 1.2.0 in Kandor is built from the upstream source plus
+  - Kryptonite: GPL-3.0. Kryptonite $KRY_VERSION in Kandor is built from the upstream source plus
     the patches in src/. Kandor's own files (kandor.sh, shim/, src/) are GPL-3.0 as well.
     Full license text: LICENSE; details: LICENSE-NOTES.md.
   - mayankk2308 made his own eGPU patches available for general use
@@ -181,7 +191,12 @@ do_status() {
   else
     pci=$(echo "$node" | grep -m1 '"pcidebug"' | grep -oE '"[0-9]+:[0-9]+:[0-9]+' | tr -d '"')
     ok "eGPU found: $name  (PCI $pci)"
-    if ioreg -r -n display@0 -d 2 -w0 2>/dev/null | grep -qE "class AMD[0-9]+Controller"; then ok "AMD driver attached to the eGPU"
+    case "$dev/$(kernel_major)" in
+      731f/2[234]|7340/2[234]|73bf/2[234]|73ff/2[234])
+        bad "Navi cards work on macOS Monterey and Tahoe only – not on Ventura, Sonoma or Sequoia (Apple's Navi drivers there need a newer CPU)";;
+    esac
+    # Polaris/Vega: AMD<n>Controller; Navi: AMDRadeonX6000_AmdRadeonController<chip>
+    if ioreg -r -n display@0 -d 2 -w0 2>/dev/null | grep -qE "class (AMD[0-9]+Controller|AMDRadeonX[0-9]+_AmdRadeonController)"; then ok "AMD driver attached to the eGPU"
     else bad "AMD driver not attached (System Information: driver installed = no) → Kryptonite patch missing or OCLP root patch missing"; fi
   fi
   # displaypolicyd keeps one log per GPU, named after its PCI address (the Vega's changes between boots/ports)
@@ -197,7 +212,7 @@ do_status() {
 
   step "AMD driver (AMDSupport)"
   local am agdc=0; am=$(md5 -q "/$AMD_REL/Contents/MacOS/AMDSupport" 2>/dev/null)
-  # Kryptonite 1.2.0 adapts OCLP's AMDSupport in memory on Ventura and later, unless -krynoagdc is set
+  # Kryptonite 1.2.0 and later adapt OCLP's AMDSupport in memory on Ventura and later, unless -krynoagdc is set
   [ "$(kernel_major)" -ge 22 ] && [ "$kv" = "$KRY_VERSION" ] && case " $ba " in *" -krynoagdc "*) ;; *) agdc=1;; esac
   if [ -z "$am" ]; then info "No AMDSupport on the system volume"
   elif [ "$(kernel_major)" -lt 22 ]; then ok "AMDSupport: Apple's own driver (Monterey needs no display fix)"
@@ -205,22 +220,27 @@ do_status() {
   elif [ "$agdc" = 1 ]; then ok "AMDSupport: OCLP's build, display fix active"
   else bad "AMDSupport: display fix not active → menu 3 (efi)"; fi
   if [ "$(kernel_major)" = 25 ]; then
-    step "Tahoe: Vega Metal shim and user-client redirects"
+    step "Tahoe: Metal shim wrapper and user-client redirects"
     shim_status
-    local x5="/System/Library/Extensions/AMDRadeonX5000.kext/Contents/MacOS/AMDRadeonX5000" fails
-    if [ "$kv" != "$KRY_VERSION" ]; then warn "Kryptonite $kv has no user-client redirects → menu 3 (efi)"
-    elif [ ! -f "$x5" ]; then info "no AMDRadeonX5000.kext (Vega root patch missing?) – redirects not needed"
-    elif ! grep -q ForceLegacyMode "$x5" 2>/dev/null; then info "Apple's own AMDRadeonX5000.kext: no redirects needed"
+    local k f olds="" fails
+    # OCLP's older AMDRadeonX5000 (Vega) / AMDRadeonX6000 (Navi) still have ForceLegacyMode: those need the redirects
+    for k in AMDRadeonX5000 AMDRadeonX6000; do
+      f="/System/Library/Extensions/$k.kext/Contents/MacOS/$k"
+      [ -f "$f" ] && grep -q ForceLegacyMode "$f" 2>/dev/null && olds="$olds $k.kext"
+    done
+    olds="${olds# }"
+    if [ "$kv" != "$KRY_VERSION" ]; then warn "Kryptonite ${kv:-none}: Kandor's user-client redirects need $KRY_VERSION → menu 3 (efi)"
+    elif [ -z "$olds" ]; then info "Apple's own AMDRadeonX5000/X6000 kexts (no OCLP Vega or Navi patch): no redirects needed"
     else
-      case " $ba " in *" -krynoredirect "*) warn "OCLP's older AMDRadeonX5000.kext, but the redirects are switched off (-krynoredirect)";;
+      case " $ba " in *" -krynoredirect "*) warn "OCLP's older $olds, but the redirects are switched off (-krynoredirect)";;
       *) # the wrapper logs every failing call to the unified log; this boot only
          if [ -z "$dev" ]; then info "user-client redirects: checked only with the eGPU attached at boot"
          else
            local ul; ul=$(/usr/bin/log show --last boot --style compact --predicate 'eventMessage CONTAINS "KANDOR ioconnect"' 2>/dev/null)
-           if ! echo "$ul" | grep -q "watch installed"; then warn "user-client redirects: the shim wrapper did not run in this boot → menu 4 (vega-patch)"
+           if ! echo "$ul" | grep -q "watch installed"; then warn "user-client redirects: the shim wrapper did not run in this boot → menu 4 (shim-patch)"
            else
              fails=$(echo "$ul" | grep -cE 'sel 0x10[25] in=.*-> 0xe')
-             if [ "${fails:-0}" = 0 ]; then ok "user-client redirects working (OCLP's older AMDRadeonX5000.kext, no failing 0x102/0x105 calls in this boot)"
+             if [ "${fails:-0}" = 0 ]; then ok "user-client redirects working (OCLP's older $olds, no failing 0x102/0x105 calls in this boot)"
              else bad "$fails failing 0x102/0x105 calls in this boot → redirects not working, menu 2 (log)"; fi
            fi
          fi;;
@@ -231,84 +251,115 @@ do_status() {
 }
 
 # ---------------------------------------------------------- Tahoe shim ---
-# OCLP's Vega patchset on Tahoe brings its own Metal shim (impostor.dylib) next to the D300's; two shims in one
-# process chain and Metal receives a wrongly translated struct. Kandor's wrapper (shim/kandor_shim.m) becomes the
-# Vega bundle's impostor.dylib and re-exports OCLP's original, renamed impostor_dortania.dylib (see README, Tahoe).
+# OCLP's Vega and Navi patchsets on Tahoe bring their own Metal shim (impostor.dylib) next to the D300's; two shims in
+# one process chain and Metal receives a wrongly translated struct. Kandor's wrapper (shim/kandor_shim.m) becomes the
+# bundle's impostor.dylib and re-exports OCLP's original, renamed impostor_dortania.dylib (see README, Tahoe).
 need_tahoe() { [ "$(kernel_major)" = 25 ] || die "this is for macOS Tahoe only"; }
+shim_rel() { echo "System/Library/Extensions/$1.bundle/Contents/MacOS"; }          # shim_rel BUNDLE
+shim_family() { case "$1" in *X5000*) echo Vega;; *X6000*) echo Navi;; *) echo "$1";; esac; }
+shim_targets() { local b; for b in $SHIM_BUNDLES; do [ -f "/$(shim_rel "$b")/impostor.dylib" ] && echo "$b"; done; }
+# backup/Shim/<build>/<bundle>/impostor.dylib; test builds before 1.3.0 kept the Vega one in backup/Shim/<build>/
+shim_backup() {
+  local n="$BACKUP/Shim/$(sw_vers -buildVersion)/$1/impostor.dylib" o="$BACKUP/Shim/$(sw_vers -buildVersion)/impostor.dylib"
+  if [ ! -f "$n" ] && [ "$1" = AMDRadeonX5000MTLDriver ] && [ -f "$o" ]; then echo "$o"; else echo "$n"; fi
+}
 shim_is_ours() { grep -qa "impostor_dortania.dylib" "$1" 2>/dev/null; }   # every build of the wrapper re-exports the renamed original
 shim_is_current() { grep -qa 'KANDOR_MODE=1 KANDOR_USER_REDIRECT=0' "$1" 2>/dev/null; }
+shims_all_current() { local b t; t=$(shim_targets); [ -n "$t" ] || return 1
+  for b in $t; do shim_is_current "/$(shim_rel "$b")/impostor.dylib" || return 1; done; }
 kry_loaded() { kmutil showloaded --list-only 2>/dev/null | grep -i "io.egpu.Kryptonite" || kextstat 2>/dev/null | grep -i "io.egpu.Kryptonite"; }
 shim_status() {
-  local d="/$SHIM_REL" bk="$BACKUP/Shim/$(sw_vers -buildVersion)"
-  if [ ! -f "$d/impostor.dylib" ]; then info "no Vega Metal shim (OCLP root patch with the Vega attached adds it)"; return; fi
-  if shim_is_ours "$d/impostor.dylib"; then
-    if shim_is_current "$d/impostor.dylib"; then ok "Kandor's shim wrapper installed (vega-patch)"
-    else warn "an older build of the shim wrapper is installed → menu 4 (vega-patch) with the eGPU unplugged"; fi
-    [ -f "$d/impostor_dortania.dylib" ] || bad "impostor_dortania.dylib missing next to the wrapper!"
-  else warn "OCLP's original Vega shim installed: boot with the eGPU attached will hang → menu 4 (vega-patch)"; fi
-  [ -f "$bk/impostor.dylib" ] && ok "backup of OCLP's shim for $(sw_vers -buildVersion): backup/Shim/" || info "no backup of OCLP's shim yet (vega-patch makes one)"
+  local b d t targets; targets=$(shim_targets)
+  if [ -z "$targets" ]; then info "no OCLP Metal shim for Vega or Navi (OCLP's root patch with the eGPU attached adds it)"; return; fi
+  for b in $targets; do
+    d="/$(shim_rel "$b")"; t="$(shim_family "$b") ($b)"
+    if shim_is_ours "$d/impostor.dylib"; then
+      if shim_is_current "$d/impostor.dylib"; then ok "$t: Kandor's shim wrapper installed"
+      else warn "$t: an older build of the shim wrapper → menu 4 (shim-patch) with the eGPU unplugged"; fi
+      [ -f "$d/impostor_dortania.dylib" ] || bad "$t: impostor_dortania.dylib missing next to the wrapper!"
+    else warn "$t: OCLP's original shim installed: boot with the eGPU attached will hang → menu 4 (shim-patch)"; fi
+    [ -f "$(shim_backup "$b")" ] && ok "$t: backup of OCLP's shim for $(sw_vers -buildVersion) in backup/Shim/" \
+      || info "$t: no backup of OCLP's shim yet (shim-patch makes one)"
+  done
 }
 shim_snapshot() {
   bless --folder "$MNT/System/Library/CoreServices" --bootefi --create-snapshot >> "$LOG" 2>&1 || die "bless failed – do not reboot, send the log"
   ok "new boot snapshot created"; umount "$MNT" 2>/dev/null
 }
-do_vega_patch() { # [after-efi]: called by efi, which has just installed Kryptonite (not loaded before the reboot)
+shim_build() { # shim_build BUNDLE: builds the wrapper for one bundle into build/shim/BUNDLE/
+  local b="$1" rel src BD="$HERE/build/shim/$1"; rel=$(shim_rel "$b")
+  src="/$rel/impostor.dylib"; shim_is_ours "$src" && src="/$rel/impostor_dortania.dylib"
+  [ -f "$src" ] || die "OCLP's impostor.dylib not found in $b"
+  rm -rf "$BD"; mkdir -p "$BD"; cp "$src" "$BD/impostor_dortania.dylib"
+  # its own install name must point to the renamed file, or the re-export would load the wrapper itself
+  install_name_tool -id "/$rel/impostor_dortania.dylib" "$BD/impostor_dortania.dylib" 2>>"$LOG" || die "install_name_tool failed ($b)"
+  codesign -f -s - "$BD/impostor_dortania.dylib" >>"$LOG" 2>&1
+  ( cd "$BD" && xcrun clang -arch x86_64 -dynamiclib -fno-objc-arc -O2 \
+      -install_name "/$rel/impostor.dylib" -Wl,-reexport_library,./impostor_dortania.dylib \
+      -framework Foundation -Wno-deprecated-declarations -o impostor.dylib "$HERE/shim/kandor_shim.m" ) >>"$LOG" 2>&1 \
+    || die "build failed for $b (see the log; grep for 'error:')"
+  codesign -f -s - -i impostor "$BD/impostor.dylib" >>"$LOG" 2>&1
+  otool -L "$BD/impostor.dylib" 2>>"$LOG" | grep -q "/$rel/impostor_dortania.dylib" || die "re-export of impostor_dortania.dylib missing in the build ($b)"
+  ok "built for $(shim_family "$b") ($b, $(lipo -archs "$BD/impostor.dylib"))"
+}
+do_shim_patch() { # [after-efi]: called by efi, which has just installed Kryptonite (not loaded before the reboot)
   need_tahoe
-  local d="/$SHIM_REL" BD="$HERE/build/shim" src bk="$BACKUP/Shim/$(sw_vers -buildVersion)" kv
-  step "Build the Vega shim wrapper"
-  # order: menu 3 (efi) → reboot → OCLP root patch with the Vega attached → menu 4
+  local b targets bk SD kv
+  step "Build the Metal shim wrapper"
+  # order: menu 3 (efi) → reboot → OCLP root patch with the eGPU attached → shut down, unplug the eGPU → menu 4
   if [ "${1:-}" != after-efi ]; then
     kv=$(kry_loaded | grep -oE '\([0-9.]+\)' | head -1 | tr -d '()')
     [ "$kv" = "$KRY_VERSION" ] || die "Kryptonite $KRY_VERSION is not running${kv:+ (loaded: $kv)} – first menu 3 (efi), then reboot"
   fi
   [ -f /System/Library/CoreServices/OpenCore-Legacy-Patcher.plist ] \
-    || die "no OCLP root patches on this macOS – boot with the eGPU attached, OCLP → Post-Install Root Patch (\"AMD Vega\"), then menu 4"
-  [ -f "$d/impostor.dylib" ] || die "OCLP's root patch has no Vega part (no impostor.dylib in the Vega Metal driver) –
-  boot with the eGPU attached, OCLP → Post-Install Root Patch (it must offer \"AMD Vega\"), then menu 4"
+    || die "no OCLP root patches on this macOS – boot with the eGPU attached, OCLP → Post-Install Root Patch (\"AMD Vega\" or \"AMD Navi\"), then menu 4"
+  targets=$(shim_targets)
+  [ -n "$targets" ] || die "OCLP's root patch has no Vega or Navi part (no impostor.dylib in AMDRadeonX5000MTLDriver or AMDRadeonX6000MTLDriver) –
+  boot with the eGPU attached, OCLP → Post-Install Root Patch (it must offer \"AMD Vega\" or \"AMD Navi\"), then menu 4"
   [ -f "$HERE/shim/kandor_shim.m" ] || die "missing shim/kandor_shim.m"
   xcrun --find clang >/dev/null 2>&1 || die "no Command Line Tools: run  xcode-select --install"
-  src="$d/impostor.dylib"; shim_is_ours "$src" && src="$d/impostor_dortania.dylib"
-  [ -f "$src" ] || die "OCLP's impostor.dylib not found"
-  rm -rf "$BD"; mkdir -p "$BD"; cp "$src" "$BD/impostor_dortania.dylib"
-  # its own install name must point to the renamed file, or the re-export would load the wrapper itself
-  install_name_tool -id "/$SHIM_REL/impostor_dortania.dylib" "$BD/impostor_dortania.dylib" 2>>"$LOG" || die "install_name_tool failed"
-  codesign -f -s - "$BD/impostor_dortania.dylib" >>"$LOG" 2>&1
-  ( cd "$BD" && xcrun clang -arch x86_64 -dynamiclib -fno-objc-arc -O2 \
-      -install_name "/$SHIM_REL/impostor.dylib" -Wl,-reexport_library,./impostor_dortania.dylib \
-      -framework Foundation -Wno-deprecated-declarations -o impostor.dylib "$HERE/shim/kandor_shim.m" ) >>"$LOG" 2>&1 \
-    || die "build failed (see the log; grep for 'error:')"
-  codesign -f -s - -i impostor "$BD/impostor.dylib" >>"$LOG" 2>&1
-  otool -L "$BD/impostor.dylib" 2>>"$LOG" | grep -q impostor_dortania || die "re-export of impostor_dortania.dylib missing in the build"
-  ok "built ($(lipo -archs "$BD/impostor.dylib"))"
-  ask "Install it into the Vega Metal driver (system volume, new boot snapshot)?" || die "cancelled by user"
+  for b in $targets; do info "OCLP's shim found: $(shim_family "$b") ($b)"; done
+  for b in $targets; do shim_build "$b"; done
+  ask "Install it into $(for b in $targets; do printf '%s ' "$(shim_family "$b")"; done | sed 's/ $//; s/ / and /g') (system volume, new boot snapshot)?" || die "cancelled by user"
   step "Install"
   mount_root
-  local SD="$MNT/$SHIM_REL"
-  if [ ! -f "$bk/impostor.dylib" ]; then
-    mkdir -p "$bk"
-    if shim_is_ours "$SD/impostor.dylib"; then cp -p "$SD/impostor_dortania.dylib" "$bk/impostor.dylib"; else cp -p "$SD/impostor.dylib" "$bk/impostor.dylib"; fi \
-      || die "backup failed"
-    ok "OCLP's original shim backed up to backup/Shim/$(sw_vers -buildVersion)/"
-  fi
-  cp "$BD/impostor_dortania.dylib" "$SD/impostor_dortania.dylib" && cp "$BD/impostor.dylib" "$SD/impostor.dylib" || die "copy failed"
-  chown root:wheel "$SD/impostor.dylib" "$SD/impostor_dortania.dylib"; chmod 755 "$SD/impostor.dylib" "$SD/impostor_dortania.dylib"
-  ok "installed: impostor.dylib (Kandor's wrapper) + impostor_dortania.dylib (OCLP's original)"
-  touch "$SHIM_LOG" && chmod 666 "$SHIM_LOG" && echo "---- install vega-patch $(date)" >> "$SHIM_LOG"
+  for b in $targets; do
+    SD="$MNT/$(shim_rel "$b")"; bk=$(shim_backup "$b")
+    if [ ! -f "$bk" ]; then
+      mkdir -p "$(dirname "$bk")"
+      if shim_is_ours "$SD/impostor.dylib"; then cp -p "$SD/impostor_dortania.dylib" "$bk"; else cp -p "$SD/impostor.dylib" "$bk"; fi \
+        || die "backup failed ($b)"
+      ok "$(shim_family "$b"): OCLP's original shim backed up to backup/Shim/$(sw_vers -buildVersion)/$b/"
+    fi
+    cp "$HERE/build/shim/$b/impostor_dortania.dylib" "$SD/impostor_dortania.dylib" && cp "$HERE/build/shim/$b/impostor.dylib" "$SD/impostor.dylib" \
+      || die "copy failed ($b)"
+    chown root:wheel "$SD/impostor.dylib" "$SD/impostor_dortania.dylib"; chmod 755 "$SD/impostor.dylib" "$SD/impostor_dortania.dylib"
+    ok "$(shim_family "$b"): installed impostor.dylib (Kandor's wrapper) + impostor_dortania.dylib (OCLP's original)"
+  done
+  touch "$SHIM_LOG" && chmod 666 "$SHIM_LOG" && echo "---- install shim-patch ($(echo $targets)) $(date)" >> "$SHIM_LOG"
   shim_snapshot
   printf "\n  ${GRN}${B}Done.${R} Shut down, attach the eGPU, boot. Afterwards: menu 1 (status); if something is wrong: menu 2 (log).\n"
 }
-do_vega_patch_revert() {
+do_shim_patch_revert() {
   need_tahoe
-  local bk="$BACKUP/Shim/$(sw_vers -buildVersion)"
-  step "Restore OCLP's Vega Metal shim"
-  [ -f "$bk/impostor.dylib" ] || die "no backup for build $(sw_vers -buildVersion) in backup/Shim/ – use OCLP: Revert Root Patches, then Post-Install Root Patch"
+  local b bk SD todo="" targets; targets=$(shim_targets)
+  step "Restore OCLP's Metal shims"
+  for b in $targets; do
+    shim_is_ours "/$(shim_rel "$b")/impostor.dylib" || { info "$(shim_family "$b"): OCLP's original shim already in place"; continue; }
+    bk=$(shim_backup "$b")
+    if [ -f "$bk" ]; then todo="$todo $b"
+    else warn "$(shim_family "$b"): no backup for build $(sw_vers -buildVersion) – use OCLP: Revert Root Patches, then Post-Install Root Patch"; fi
+  done
+  [ -n "$todo" ] || die "nothing to restore"
   warn "with OCLP's original shim a boot with the eGPU attached hangs – unplug the eGPU first"
-  ask "Restore it (system volume, new boot snapshot)?" || die "cancelled by user"
+  ask "Restore OCLP's shim for$(for b in $todo; do printf ' %s' "$(shim_family "$b")"; done) (system volume, new boot snapshot)?" || die "cancelled by user"
   mount_root
-  local SD="$MNT/$SHIM_REL"
-  cp -p "$bk/impostor.dylib" "$SD/impostor.dylib" && rm -f "$SD/impostor_dortania.dylib" || die "restore failed"
-  chown root:wheel "$SD/impostor.dylib"; chmod 755 "$SD/impostor.dylib"
-  ok "OCLP's original impostor.dylib restored"
+  for b in $todo; do
+    SD="$MNT/$(shim_rel "$b")"
+    cp -p "$(shim_backup "$b")" "$SD/impostor.dylib" && rm -f "$SD/impostor_dortania.dylib" || die "restore failed ($b)"
+    chown root:wheel "$SD/impostor.dylib"; chmod 755 "$SD/impostor.dylib"
+    ok "$(shim_family "$b"): OCLP's original impostor.dylib restored"
+  done
   shim_snapshot
   printf "\n  ${GRN}${B}Done.${R} Reboot (without the eGPU).\n"
 }
@@ -320,7 +371,7 @@ do_log() { # read-only: everything needed to diagnose the eGPU, on every macOS
   step "Collect the logs into logs/$(basename "$O")/"
   ( do_status ) 2>&1 | sed 's/\x1b\[[0-9;]*m//g' > "$O/status.txt" && ok "status (status.txt)"
   for f in $(ls -t "$HERE"/logs/*.log 2>/dev/null | head -5); do cp "$f" "$O/"; done
-  ls "$O"/*.log >/dev/null 2>&1 && ok "the last Kandor action logs (efi, vega-patch, …)"
+  ls "$O"/*.log >/dev/null 2>&1 && ok "the last Kandor action logs (efi, shim-patch, …)"
   { echo "== sw_vers / kernel"; sw_vers; uname -a
     echo; echo "== boot-args"; nvram boot-args 2>/dev/null
     echo; echo "== loaded kexts (Kryptonite, Lilu, AMD, AGDC, GPU)"
@@ -330,7 +381,9 @@ do_log() { # read-only: everything needed to diagnose the eGPU, on every macOS
     for f in /System/Library/Extensions/AMDSupport.kext/Contents/MacOS/AMDSupport \
              /System/Library/Extensions/AMDRadeonX5000.kext/Contents/MacOS/AMDRadeonX5000 \
              /System/Library/Extensions/AMDRadeonX4000.kext/Contents/MacOS/AMDRadeonX4000 \
-             "/$SHIM_REL/impostor.dylib" "/$SHIM_REL/impostor_dortania.dylib"; do
+             /System/Library/Extensions/AMDRadeonX6000.kext/Contents/MacOS/AMDRadeonX6000 \
+             /System/Library/Extensions/AMDRadeonX6000Framebuffer.kext/Contents/MacOS/AMDRadeonX6000Framebuffer \
+             $(for b in $SHIM_BUNDLES; do echo "/$(shim_rel "$b")/impostor.dylib /$(shim_rel "$b")/impostor_dortania.dylib"; done); do
       [ -f "$f" ] && echo "$(md5 -q "$f")  $f"; done
     echo "AMDSupport tested OCLP build: $AMD_MD5_TESTED; GPUWrangler pattern: $(gpuwrangler_style)"
     echo; echo "== OCLP root patch record"; plutil -p /System/Library/CoreServices/OpenCore-Legacy-Patcher.plist 2>/dev/null | head -60
@@ -443,9 +496,9 @@ do_efi() {
   [ -n "$cur" ] && info "remove all current Kryptonite entries and Kryptonite*.kext folders from EFI/OC/Kexts"
   echo "$plan" | while IFS='|' read -r k mn mx c; do info "add $k  for kernel $mn – $mx"; done
   info "boot-args: make sure '$BOOTARGS_NEEDED' is present"
-  # Tahoe's Vega shim wrapper needs library validation off; the patch only acts on kernel 25 (Tahoe), AMFI stays on
+  # Tahoe's shim wrapper needs library validation off; the patch only acts on kernel 25 (Tahoe), AMFI stays on
   local lv=remove t
-  if [ "$(kernel_major)" = 25 ]; then lv=add; info "Tahoe is running → library-validation patch for Tahoe (for the Vega shim wrapper)"
+  if [ "$(kernel_major)" = 25 ]; then lv=add; info "Tahoe is running → library-validation patch for Tahoe (for the shim wrapper)"
   elif patch_comments "$CFG" | grep -qE "^[0-9]*\|$LV_RE"; then lv=add; info "keep the library-validation patch for Tahoe (already in this EFI)"
   else
     for t in /Volumes/*/System/Library/CoreServices/SystemVersion.plist; do
@@ -502,16 +555,16 @@ do_efi() {
   printf "\n\n  ${GRN}${B}Done.${R} The EFI change takes effect at the next boot.\n"
   # what comes next on this macOS
   if [ "$(kernel_major)" = 25 ]; then
-    if [ ! -f "/$SHIM_REL/impostor.dylib" ]; then
-      printf "  Next on Tahoe: shut down, attach the eGPU, boot (fine as long as OCLP's Vega part is not installed),\n"
-      printf "  OCLP → Post-Install Root Patch (it must offer \"AMD Vega\"), then shut down, unplug the eGPU, boot\n"
-      printf "  and run menu 4 (vega-patch).\n"
-    elif shim_is_current "/$SHIM_REL/impostor.dylib"; then
-      printf "  Kandor's Vega shim wrapper is already installed: shut down, attach the eGPU, boot.\n"
+    if [ -z "$(shim_targets)" ]; then
+      printf "  Next on Tahoe: shut down, attach the eGPU, boot (fine as long as OCLP's Vega or Navi part is not installed),\n"
+      printf "  OCLP → Post-Install Root Patch (it must offer \"AMD Vega\" or \"AMD Navi\"), then shut down, unplug the eGPU,\n"
+      printf "  boot and run menu 4 (shim-patch).\n"
+    elif shims_all_current; then
+      printf "  Kandor's shim wrapper is already installed: shut down, attach the eGPU, boot.\n"
     else
-      printf "\n  Tahoe also needs Kandor's Vega Metal shim wrapper (menu 4); no reboot needed in between.\n"
-      if ask "Install it now?"; then do_vega_patch after-efi
-      else printf "\n  Before booting with the eGPU attached: menu 4 (vega-patch).\n"; fi
+      printf "\n  Tahoe also needs Kandor's Metal shim wrapper (menu 4); no reboot needed in between.\n"
+      if ask "Install it now?"; then do_shim_patch after-efi
+      else printf "\n  Before booting with the eGPU attached: menu 4 (shim-patch).\n"; fi
     fi
   elif [ "$(kernel_major)" -ge 22 ] && [ ! -f /System/Library/CoreServices/OpenCore-Legacy-Patcher.plist ]; then
     printf "  Next: reboot with the eGPU attached, then OCLP → Post-Install Root Patch.\n"
@@ -549,8 +602,8 @@ case "${1:-menu}" in
   status) do_status;;
   log) do_log;;
   efi) with_log efi do_efi;;
-  vega-patch) with_log vega-patch do_vega_patch;;
-  vega-patch-revert) with_log vega-patch-revert do_vega_patch_revert;;
+  shim-patch) with_log shim-patch do_shim_patch;;
+  shim-patch-revert) with_log shim-patch-revert do_shim_patch_revert;;
   menu)
     while true; do
       printf "\n  ${B}0${R}  Show credits and licenses\n"
@@ -558,13 +611,13 @@ case "${1:-menu}" in
       printf "  ${B}2${R}  Collect error logs\n"
       printf "  ${B}3${R}  Install / update Kandor in the EFI\n"
       if [ "$(kernel_major)" = 25 ]; then
-        printf "  ${B}4${R}  macOS Tahoe: install the graphics fix for Vega cards\n"
-        printf "  ${B}5${R}  macOS Tahoe: uninstall the graphics fix for Vega cards\n"
+        printf "  ${B}4${R}  macOS Tahoe: install the graphics fix (Vega and Navi)\n"
+        printf "  ${B}5${R}  macOS Tahoe: uninstall the graphics fix (Vega and Navi)\n"
       fi
       printf "  ${B}q${R}  Quit\n\n"
       c=$(choose "Choose")
       case "$c" in
-        0) credits;; 1) do_status;; 2) ( do_log );; 3) with_log efi do_efi;; 4) with_log vega-patch do_vega_patch;; 5) with_log vega-patch-revert do_vega_patch_revert;;
+        0) credits;; 1) do_status;; 2) ( do_log );; 3) with_log efi do_efi;; 4) with_log shim-patch do_shim_patch;; 5) with_log shim-patch-revert do_shim_patch_revert;;
         q|Q) break;; "") ;; *) warn "unknown choice";;
       esac
     done;;
@@ -574,7 +627,7 @@ case "${1:-menu}" in
      printf "    status              show the status (checks everything, changes nothing)\n"
      printf "    log                 collect error logs\n"
      printf "    efi                 install / update Kandor in the EFI\n"
-     printf "    vega-patch          macOS Tahoe: install the graphics fix for Vega cards\n"
-     printf "    vega-patch-revert   macOS Tahoe: uninstall the graphics fix for Vega cards\n";;
+     printf "    shim-patch          macOS Tahoe: install the graphics fix (Vega and Navi)\n"
+     printf "    shim-patch-revert   macOS Tahoe: uninstall the graphics fix (Vega and Navi)\n";;
 esac
 printf "\n"
