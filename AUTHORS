@@ -15,7 +15,7 @@ JessiesFlying, with assistance from Claude (Anthropic)
                           Kryptonite for Ventura & Sonoma (src/kandor-sonoma-threshold.patch),
                           AMDSupport AGDC fix as a Lilu patch (src/kandor-amdsupport-agdc.patch),
                           AMDRadeonX5000 user-client selector redirects (src/kandor-x5000-selectors.patch),
-                          version 1.2.0 (src/kandor-version-1.2.0.patch), Vega shim analysis and wrapper
+                          version patch (src/kandor-version-1.3.0.patch), Vega shim analysis and wrapper
                           (shim/kandor_shim.m), Kandor (kandor.sh, src/build-kext.sh, documentation)
 
 acidanthera               OpenCore, Lilu (not included)

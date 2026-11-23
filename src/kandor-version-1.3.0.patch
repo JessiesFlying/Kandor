@@ -1,4 +1,4 @@
-Kandor – patch 6: version 1.2.0
+Kandor – patch 6: version 1.3.0
 SPDX-License-Identifier: GPL-3.0-only
 
 diff --git a/Kryptonite/Kryptonite.xcodeproj/project.pbxproj b/Kryptonite/Kryptonite.xcodeproj/project.pbxproj
@@ -10,7 +10,7 @@ index 1096690..1c1965d 100644
  				CODE_SIGN_STYLE = Automatic;
  				COMBINE_HIDPI_IMAGES = YES;
 -				CURRENT_PROJECT_VERSION = 1.0.0;
-+				CURRENT_PROJECT_VERSION = 1.2.0;
++				CURRENT_PROJECT_VERSION = 1.3.0;
  				DEVELOPMENT_TEAM = "";
  				GCC_PREPROCESSOR_DEFINITIONS = (
  					"MODULE_VERSION=$(MODULE_VERSION)",
@@ -19,12 +19,12 @@ index 1096690..1c1965d 100644
  				);
  				MACOSX_DEPLOYMENT_TARGET = 10.13.4;
 -				MARKETING_VERSION = 1.0.0;
-+				MARKETING_VERSION = 1.2.0;
++				MARKETING_VERSION = 1.3.0;
  				MODULE_NAME = io.egpu.Kryptonite;
  				MODULE_START = "$(PRODUCT_NAME)_kern_start";
  				MODULE_STOP = "$(PRODUCT_NAME)_kern_stop";
 -				MODULE_VERSION = 1.0.0;
-+				MODULE_VERSION = 1.2.0;
++				MODULE_VERSION = 1.3.0;
  				OTHER_CFLAGS = (
  					"-mmmx",
  					"-msse",
@@ -33,7 +33,7 @@ index 1096690..1c1965d 100644
  				CODE_SIGN_STYLE = Automatic;
  				COMBINE_HIDPI_IMAGES = YES;
 -				CURRENT_PROJECT_VERSION = 1.0.0;
-+				CURRENT_PROJECT_VERSION = 1.2.0;
++				CURRENT_PROJECT_VERSION = 1.3.0;
  				DEAD_CODE_STRIPPING = YES;
  				DEVELOPMENT_TEAM = "";
  				GCC_OPTIMIZATION_LEVEL = 0;
@@ -42,12 +42,12 @@ index 1096690..1c1965d 100644
  				);
  				MACOSX_DEPLOYMENT_TARGET = 10.13.4;
 -				MARKETING_VERSION = 1.0.0;
-+				MARKETING_VERSION = 1.2.0;
++				MARKETING_VERSION = 1.3.0;
  				MODULE_NAME = io.egpu.Kryptonite;
  				MODULE_START = "$(PRODUCT_NAME)_kern_start";
  				MODULE_STOP = "$(PRODUCT_NAME)_kern_stop";
 -				MODULE_VERSION = 1.0.0;
-+				MODULE_VERSION = 1.2.0;
++				MODULE_VERSION = 1.3.0;
  				ONLY_ACTIVE_ARCH = YES;
  				OTHER_CFLAGS = (
  					"-mmmx",

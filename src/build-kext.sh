@@ -17,7 +17,7 @@ LILU_VERSION=1.7.2                 # the Lilu that OCLP 3.0.0-rc.5 installs
 LILU_ZIP="https://github.com/acidanthera/Lilu/releases/download/$LILU_VERSION/Lilu-$LILU_VERSION-DEBUG.zip"
 SDK=https://github.com/acidanthera/MacKernelSDK.git
 PATCHES="kandor-sequoia-24G720.patch kandor-tahoe-25G241.patch kandor-sonoma-threshold.patch
-kandor-amdsupport-agdc.patch kandor-x5000-selectors.patch kandor-version-1.2.0.patch
+kandor-amdsupport-agdc.patch kandor-x5000-selectors.patch kandor-version-1.3.0.patch
 kandor-navi-agdc.patch kandor-navi-selectors.patch"
 
 B="$HERE/build"; OUT="$HERE/out"; LOG="$OUT/build-$(date +%Y%m%d-%H%M%S).log"
@@ -58,6 +58,6 @@ lipo -archs "$K/Contents/MacOS/Kryptonite" | grep -q x86_64 || die "the build ha
 rm -rf "$OUT/Kryptonite-$V.kext"; cp -R "$K" "$OUT/Kryptonite-$V.kext"
 say "built: $OUT/Kryptonite-$V.kext"
 say "  version $V, binary md5 $(md5 -q "$OUT/Kryptonite-$V.kext/Contents/MacOS/Kryptonite")"
-say "  contains: $(strings "$OUT/Kryptonite-$V.kext/Contents/MacOS/Kryptonite" | grep -cE 'krynoagdc|krynoredirect|ForceLegacyModeEv|IOAccelSharedUserClient2') Kandor markers (expect 4)"
+say "  contains: $(strings "$OUT/Kryptonite-$V.kext/Contents/MacOS/Kryptonite" | grep -cE 'krynoagdc|krynoredirect|ForceLegacyModeEv|IOAccelSharedUserClient2') Kandor markers (expect 5)"
 echo
 echo "  Log: $LOG"

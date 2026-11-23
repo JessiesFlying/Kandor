@@ -5,8 +5,8 @@
 - **OpenCore Legacy Patcher** (Dortania): BSD-4-Clause for its own files, bundled components under their own
   licenses (https://dortania.github.io/OpenCore-Legacy-Patcher/LICENSE.html). Not included.
 - **Kryptonite** (mayankk2308, https://github.com/mayankk2308/kryptonite): GPL-3.0. Full text in `LICENSE`.
-  `Kexts/Kryptonite-1.2.0.kext` is distributed under GPL-3.0; its source is the upstream repository plus
-  patches 1–6 in `src/` (see `src/README.md`; patches 7–8 are for the next build).
+  `Kexts/Kryptonite-1.3.0.kext` is distributed under GPL-3.0; its source is the upstream repository plus
+  patches 1–8 in `src/` (see `src/README.md`).
 - **kandor.sh**, **shim/kandor_shim.m**, **src/build-kext.sh** and the source patches 3–6 (JessiesFlying, with assistance from
   Claude (Anthropic)): GPL-3.0 (`SPDX-License-Identifier: GPL-3.0-only`).
 - Source patches 1–2 and 7–8 (ne1rom, with assistance from Claude (Anthropic)): changes to Kryptonite, GPL-3.0 like
@@ -18,13 +18,15 @@ OCLP's shim installed on the user's own machine.
 The `backup/` folder is created locally by the script and must never be published.
 
 ## Kryptonite builds
-**1.2.0** (the one build of Kandor, kernel 21–25, Monterey to Tahoe): built by `src/build-kext.sh` from upstream
-`mayankk2308/kryptonite` `6e97e36` plus patches 1–6 in `src/`: ne1rom's two (`kandor-sequoia-24G720.patch`,
-`kandor-tahoe-25G241.patch`) and Kandor's four (Sonoma threshold, AMDSupport display fix in memory, X5000
-user-client redirects for Tahoe, version). Binary md5 `f95cb8769554439ff91828d957884ddf`. Tested on 21 Nov 2026 on Monterey 12.7.6, Sonoma 14.8.9,
-Sequoia 15.8.1 and Tahoe 26.7.2 (Mac Pro 6,1, RX Vega 56; original OCLP AMDSupport, AMFI on).
+**1.3.0** (the one build of Kandor, kernel 21–25, Monterey to Tahoe): built by `src/build-kext.sh` from upstream
+`mayankk2308/kryptonite` `6e97e36` plus patches 1–8 in `src/`: ne1rom's four (`kandor-sequoia-24G720.patch`,
+`kandor-tahoe-25G241.patch`, Navi display fix and Navi user-client redirects for Tahoe) and Kandor's four (Sonoma
+threshold, AMDSupport display fix in memory, X5000 user-client redirects for Tahoe, version). Binary md5 and tests:
+added with the release build.
 
-Earlier builds (1.1.0: ne1rom's Sequoia build with one byte changed, Monterey to Sequoia) are no longer shipped.
+Earlier builds are no longer shipped: 1.2.0 (patches 1–6, no Navi; md5 `f95cb8769554439ff91828d957884ddf`, tested on
+21 Nov 2026 on Monterey 12.7.6, Sonoma 14.8.9, Sequoia 15.8.1 and Tahoe 26.7.2 with an RX Vega 56) and 1.1.0
+(ne1rom's Sequoia build with one byte changed, Monterey to Sequoia).
 
 ## Credits
 - acidanthera: OpenCore, Lilu; Dortania: OpenCore Legacy Patcher
