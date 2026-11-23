@@ -269,7 +269,10 @@ do_status() {
 need_tahoe() { [ "$(kernel_major)" = 25 ] || die "this is for macOS Tahoe only"; }
 shim_rel() { echo "System/Library/Extensions/$1.bundle/Contents/MacOS"; }          # shim_rel BUNDLE
 shim_family() { case "$1" in *X5000*) echo Vega;; *X6000*) echo Navi;; *) echo "$1";; esac; }
-shim_targets() { local b; for b in $SHIM_BUNDLES; do [ -f "/$(shim_rel "$b")/impostor.dylib" ] && echo "$b"; done; }
+# shim_targets [ROOT]: bundles with an OCLP shim, on the running system or (shim-patch, revert) on the mounted system
+# volume that gets the new snapshot – before a reboot the two differ
+shim_targets() { local b; for b in $SHIM_BUNDLES; do [ -f "${1:-}/$(shim_rel "$b")/impostor.dylib" ] && echo "$b"; done; }
+die_umount() { umount "$MNT" 2>/dev/null; die "$@"; }
 # backup/Shim/<build>/<bundle>/impostor.dylib; test builds before 1.3.0 kept the Vega one in backup/Shim/<build>/
 shim_backup() {
   local n="$BACKUP/Shim/$(sw_vers -buildVersion)/$1/impostor.dylib" o="$BACKUP/Shim/$(sw_vers -buildVersion)/impostor.dylib"
@@ -298,9 +301,9 @@ shim_snapshot() {
   bless --folder "$MNT/System/Library/CoreServices" --bootefi --create-snapshot >> "$LOG" 2>&1 || die "bless failed – do not reboot, send the log"
   ok "new boot snapshot created"; umount "$MNT" 2>/dev/null
 }
-shim_build() { # shim_build BUNDLE: builds the wrapper for one bundle into build/shim/BUNDLE/
+shim_build() { # shim_build BUNDLE: builds the wrapper for one bundle (from the mounted system volume) into build/shim/BUNDLE/
   local b="$1" rel src BD="$HERE/build/shim/$1"; rel=$(shim_rel "$b")
-  src="/$rel/impostor.dylib"; shim_is_ours "$src" && src="/$rel/impostor_dortania.dylib"
+  src="$MNT/$rel/impostor.dylib"; shim_is_ours "$src" && src="$MNT/$rel/impostor_dortania.dylib"
   [ -f "$src" ] || die "OCLP's impostor.dylib not found in $b"
   rm -rf "$BD"; mkdir -p "$BD"; cp "$src" "$BD/impostor_dortania.dylib"
   # its own install name must point to the renamed file, or the re-export would load the wrapper itself
@@ -325,16 +328,16 @@ do_shim_patch() { # [after-efi]: called by efi, which has just installed Krypton
   fi
   [ -f /System/Library/CoreServices/OpenCore-Legacy-Patcher.plist ] \
     || die "no OCLP root patches on this macOS – boot with the eGPU attached, OCLP → Post-Install Root Patch (\"AMD Vega\" or \"AMD Navi\"), then menu 4"
-  targets=$(shim_targets)
-  [ -n "$targets" ] || die "OCLP's root patch has no Vega or Navi part (no impostor.dylib in AMDRadeonX5000MTLDriver or AMDRadeonX6000MTLDriver) –
-  boot with the eGPU attached, OCLP → Post-Install Root Patch (it must offer \"AMD Vega\" or \"AMD Navi\"), then menu 4"
   [ -f "$HERE/shim/kandor_shim.m" ] || die "missing shim/kandor_shim.m"
   xcrun --find clang >/dev/null 2>&1 || die "no Command Line Tools: run  xcode-select --install"
+  mount_root   # the shims are read from and written to the system volume that gets the new snapshot
+  targets=$(shim_targets "$MNT")
+  [ -n "$targets" ] || die_umount "OCLP's root patch has no Vega or Navi part (no impostor.dylib in AMDRadeonX5000MTLDriver or AMDRadeonX6000MTLDriver) –
+  boot with the eGPU attached, OCLP → Post-Install Root Patch (it must offer \"AMD Vega\" or \"AMD Navi\"), then menu 4"
   for b in $targets; do info "OCLP's shim found: $(shim_family "$b") ($b)"; done
   for b in $targets; do shim_build "$b"; done
-  ask "Install the wrapper for $(for b in $targets; do printf '%s ' "$(shim_family "$b")"; done | sed 's/ $//; s/ / and /g') (system volume, new boot snapshot)?" || die "cancelled by user"
+  ask "Install the wrapper for $(for b in $targets; do printf '%s ' "$(shim_family "$b")"; done | sed 's/ $//; s/ / and /g') (system volume, new boot snapshot)?" || die_umount "cancelled by user"
   step "Install"
-  mount_root
   for b in $targets; do
     SD="$MNT/$(shim_rel "$b")"; bk=$(shim_backup "$b")
     if [ ! -f "$bk" ]; then
@@ -361,18 +364,19 @@ do_shim_patch() { # [after-efi]: called by efi, which has just installed Krypton
 }
 do_shim_patch_revert() {
   need_tahoe
-  local b bk SD todo="" targets; targets=$(shim_targets)
+  local b bk SD todo="" targets
   step "Restore OCLP's Metal shims"
+  mount_root   # check and change the system volume that gets the new snapshot (differs from the running one before a reboot)
+  targets=$(shim_targets "$MNT")
   for b in $targets; do
-    shim_is_ours "/$(shim_rel "$b")/impostor.dylib" || { info "$(shim_family "$b"): OCLP's original shim already in place"; continue; }
+    shim_is_ours "$MNT/$(shim_rel "$b")/impostor.dylib" || { info "$(shim_family "$b"): OCLP's original shim already in place"; continue; }
     bk=$(shim_backup "$b")
     if [ -f "$bk" ]; then todo="$todo $b"
     else warn "$(shim_family "$b"): no backup for build $(sw_vers -buildVersion) – use OCLP: Revert Root Patches, then Post-Install Root Patch"; fi
   done
-  [ -n "$todo" ] || die "nothing to restore"
+  [ -n "$todo" ] || die_umount "nothing to restore"
   warn "with OCLP's original shim a boot with the eGPU attached hangs – unplug the eGPU first"
-  ask "Restore OCLP's shim for$(for b in $todo; do printf ' %s' "$(shim_family "$b")"; done) (system volume, new boot snapshot)?" || die "cancelled by user"
-  mount_root
+  ask "Restore OCLP's shim for$(for b in $todo; do printf ' %s' "$(shim_family "$b")"; done) (system volume, new boot snapshot)?" || die_umount "cancelled by user"
   for b in $todo; do
     SD="$MNT/$(shim_rel "$b")"
     cp -p "$(shim_backup "$b")" "$SD/impostor.dylib" && rm -f "$SD/impostor_dortania.dylib" || die "restore failed ($b)"
