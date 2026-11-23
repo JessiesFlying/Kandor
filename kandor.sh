@@ -88,7 +88,7 @@ ${B}Credits${R}
   - goalque for: support for NVIDIA eGFX on macOS 10.13.4+
   - rgov for: Ti82 Thunderbolt patches - adapted for Lilu by mac_editor
 
-  ${B}Kryptonite for macOS Sequoia and Tahoe${R}
+  ${B}Original concept and Kryptonite for macOS Sequoia and Tahoe${R}
   - ne1rom, with assistance from Claude (Anthropic)
 
   ${B}Navi on macOS Tahoe${R}
