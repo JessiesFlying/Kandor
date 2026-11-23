@@ -61,16 +61,15 @@ banner() {
   printf "  ${B}Kandor %s${R}  ·  AMD eGPU for the Mac Pro (Late 2013)\n" "$KANDOR_VERSION"
   printf "  macOS Monterey – Tahoe with OpenCore Legacy Patcher\n"
   printf "  ${B}${CYN}%s${R}\n" "$rule"
-  [ "$(kernel_major)" = 25 ] && printf "  ${YEL}Tahoe:${R} menu 4–5, see README (Tahoe)\n"
+  [ "$(kernel_major)" = 25 ] && printf "  ${YEL}Tahoe with Vega or Navi:${R} menu 4 after OCLP's root patch, before restarting (README, step 3a)\n"
   printf "  ${YEL}Supported for now:${R} MacPro6,1 only · ${B}AMD${R} eGPUs only (tested: RX Vega 56, RX 580, RX 6900 XT)\n"
   printf "                     eGPU on a ${B}lower${R} Thunderbolt 2 port (the upper ports hang at boot)\n"
   printf "  ${YEL}Cold boot only:${R} eGPU attached and powered on ${B}before${R} the Mac starts. Never power it on,\n"
   printf "                  plug it in or unplug it while the Mac boots or runs.\n\n"
   printf "  ${D}OpenCore & Lilu by acidanthera · OCLP by Dortania\n"
   printf "  Kryptonite (GPL-3.0) by mayankk2308 & mac_editor\n"
-  printf "  Sequoia/Tahoe fork by ne1rom\n"
-  printf "  Ventura/Sonoma adaptation, AMD driver fix, Tahoe Vega support and Kandor by JessiesFlying\n"
-  printf "  Navi on Tahoe by ne1rom${R}\n"
+  printf "  Original concept, Kryptonite fork for Sequoia/Tahoe and Navi support on Tahoe by ne1rom\n"
+  printf "  Ventura/Sonoma adaptation, AMD driver fix, Tahoe Vega support and Kandor by JessiesFlying${R}\n"
 }
 
 credits() {
