@@ -60,6 +60,12 @@ sudo bash kandor.sh
 
 Then choose menu option **#3: "efi"**. It asks before it changes anything and keeps a backup of your EFI.
 
+On **Tahoe with a Vega or Navi card**, also install Apple's Command Line Tools now (menu option #4 needs them):
+
+```
+xcode-select --install
+```
+
 ### 2. Shut down and attach the eGPU
 
 Shut down the Mac, connect the eGPU to one of the **two lower Thunderbolt ports** (the pair next to HDMI), switch the
@@ -68,18 +74,21 @@ box on, then start the Mac.
 > [!WARNING]
 > The upper Thunderbolt ports don't work for the eGPU: with the eGPU there, the Mac doesn't start (no chime).
 
+> [!IMPORTANT]
+> **Tahoe with a Navi card:** also connect a monitor to the Mac's own **HDMI port**. The Navi card shows no picture
+> until step 3a is done.
+
 ### 3. Install the graphic drivers
 
 Skip this step on Monterey.
 
 In OCLP, click **Post-Install Root Patch** with the eGPU attached. If OCLP says the system is already patched, click
-**Revert Root Patches** first, restart and try again. Then restart.
-
-On **Tahoe with a Vega or Navi card**: shut down instead of restarting and go on with step 3a.
+**Revert Root Patches** first, restart and try again. When OCLP has finished, restart – except on **Tahoe with a
+Vega or Navi card**: there **don't restart yet** and go on with step 3a.
 
 ### 3a. Tahoe with a Vega or Navi card only
 
-With the **eGPU unplugged**, start the Mac, start the Kandor menu and choose menu option **#4: "shim-patch"**. Then shut down, plug the eGPU back in, switch the box on and start the Mac.
+Start the Kandor menu and choose menu option **#4: "shim-patch"**, then restart. The eGPU stays attached.
 
 ### 4. Check
 
@@ -94,7 +103,7 @@ Start the Kandor menu and choose menu option **#1: "status"**. Every line should
 | After … | do this |
 |---|---|
 | OCLP **Build and Install OpenCore** | menu option **#3: "efi"** again |
-| an OCLP root patch or a macOS update | nothing – except on Tahoe with a Vega or Navi card: menu option **#4: "shim-patch"** again, with the eGPU unplugged |
+| an OCLP root patch or a macOS update | nothing – except on Tahoe with a Vega or Navi card: menu option **#4: "shim-patch"** again before restarting. With a Navi card the eGPU shows no picture after a macOS update until that is done: use a monitor on the Mac's HDMI port |
 
 ## 📋 Menu
 

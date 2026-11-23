@@ -196,6 +196,8 @@ do_status() {
         bad "Navi cards work on macOS Monterey and Tahoe only – not on Ventura, Sonoma or Sequoia (Apple's Navi drivers there need a newer CPU)";; esac
     # Polaris/Vega: AMD<n>Controller; Navi: AMDRadeonX6000_AmdRadeonController<chip>
     if ioreg -r -n display@0 -d 2 -w0 2>/dev/null | grep -qE "class (AMD[0-9]+Controller|AMDRadeonX[0-9]+_AmdRadeonController)"; then ok "AMD driver attached to the eGPU"
+    elif [ "$(kernel_major)" = 25 ] && is_navi "$dev" && [ "$(count_hex 4881fa044000007562 /System/Library/Extensions/AMDRadeonX6000Framebuffer.kext/Contents/MacOS/AMDRadeonX6000Framebuffer)" = 0 ]; then
+      info "no AMD driver attached yet: Kryptonite holds Apple's own Navi driver off until OCLP's Navi patch is installed → OCLP → Post-Install Root Patch (\"AMD Navi\"), then menu 4 (shim-patch) before restarting"
     else bad "AMD driver not attached (System Information: driver installed = no) → Kryptonite patch missing or OCLP root patch missing"; fi
   fi
   # displaypolicyd keeps one log per GPU, named after its PCI address (the Vega's changes between boots/ports)
@@ -326,11 +328,13 @@ do_shim_patch() { # [after-efi]: called by efi, which has just installed Krypton
     kv=$(kry_loaded | grep -oE '\([0-9.]+\)' | head -1 | tr -d '()')
     [ "$kv" = "$KRY_VERSION" ] || die "Kryptonite $KRY_VERSION is not running${kv:+ (loaded: $kv)} – first menu 3 (efi), then reboot"
   fi
-  [ -f /System/Library/CoreServices/OpenCore-Legacy-Patcher.plist ] \
-    || die "no OCLP root patches on this macOS – boot with the eGPU attached, OCLP → Post-Install Root Patch (\"AMD Vega\" or \"AMD Navi\"), then menu 4"
   [ -f "$HERE/shim/kandor_shim.m" ] || die "missing shim/kandor_shim.m"
   xcrun --find clang >/dev/null 2>&1 || die "no Command Line Tools: run  xcode-select --install"
-  mount_root   # the shims are read from and written to the system volume that gets the new snapshot
+  # the shims are read from and written to the system volume that gets the new snapshot: right after OCLP's root
+  # patch (before the restart) that volume already has OCLP's files, the running system not yet
+  mount_root
+  [ -f "$MNT/System/Library/CoreServices/OpenCore-Legacy-Patcher.plist" ] \
+    || die_umount "no OCLP root patches on this macOS – boot with the eGPU attached, OCLP → Post-Install Root Patch (\"AMD Vega\" or \"AMD Navi\"), then menu 4"
   targets=$(shim_targets "$MNT")
   [ -n "$targets" ] || die_umount "OCLP's root patch has no Vega or Navi part (no impostor.dylib in AMDRadeonX5000MTLDriver or AMDRadeonX6000MTLDriver) –
   boot with the eGPU attached, OCLP → Post-Install Root Patch (it must offer \"AMD Vega\" or \"AMD Navi\"), then menu 4"
@@ -360,7 +364,11 @@ do_shim_patch() { # [after-efi]: called by efi, which has just installed Krypton
   done
   touch "$SHIM_LOG" && chmod 666 "$SHIM_LOG" && echo "---- install shim-patch ($(echo $targets)) $(date)" >> "$SHIM_LOG"
   shim_snapshot
-  printf "\n  ${GRN}${B}Done.${R} Shut down, attach the eGPU, boot. Afterwards: menu 1 (status); if something is wrong: menu 2 (log).\n"
+  if ioreg -r -n display@0 -d 1 2>/dev/null | grep -q IOPCIDevice; then
+    printf "\n  ${GRN}${B}Done.${R} Restart (the eGPU stays attached). Afterwards: menu 1 (status); if something is wrong: menu 2 (log).\n"
+  else
+    printf "\n  ${GRN}${B}Done.${R} Shut down, attach the eGPU, boot. Afterwards: menu 1 (status); if something is wrong: menu 2 (log).\n"
+  fi
 }
 do_shim_patch_revert() {
   need_tahoe
@@ -579,9 +587,9 @@ do_efi() {
   # what comes next on this macOS
   if [ "$(kernel_major)" = 25 ]; then
     if [ -z "$(shim_targets)" ]; then
-      printf "  Next on Tahoe: shut down, attach the eGPU, boot (fine as long as OCLP's Vega or Navi part is not installed),\n"
-      printf "  OCLP → Post-Install Root Patch (it must offer \"AMD Vega\" or \"AMD Navi\"), then shut down, unplug the eGPU,\n"
-      printf "  boot and run menu 4 (shim-patch).\n"
+      printf "  Next on Tahoe: shut down, attach the eGPU (Navi: also a monitor on the Mac's HDMI port – the Navi card shows\n"
+      printf "  no picture until the end of this), boot, OCLP → Post-Install Root Patch (it must offer \"AMD Vega\" or\n"
+      printf "  \"AMD Navi\"), don't restart yet: menu 4 (shim-patch), then restart.\n"
     elif shims_all_current; then
       printf "  Kandor's shim wrapper is already installed: shut down, attach the eGPU, boot.\n"
     else
