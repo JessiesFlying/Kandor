@@ -159,7 +159,7 @@ do_status() {
   local ocv rpv; ocv=$(nvram "$OC_GUID:OCLP-Version" 2>/dev/null | cut -f2- | sed 's/%00//g')
   [ -n "$ocv" ] && ok "Booted through OpenCore built by OCLP $ocv" || warn "No OCLP-Version in NVRAM (not booted through an OCLP-built OpenCore?)"
   rpv=$(pl "OpenCore Legacy Patcher" /System/Library/CoreServices/OpenCore-Legacy-Patcher.plist)
-  [ "$pend" = 1 ] && warn "A restart is pending: OCLP's root patch or menu 4 (shim-patch) is already on the system volume; the lines
+  [ "$pend" = 1 ] && warn "A restart is pending: the system volume has changed (e.g. OCLP's root patch or menu 4); the lines
     below show the system as it runs now. Tahoe with a Vega or Navi card: menu 4 first if not done yet, then restart."
   if [ "$(kernel_major)" -ge 22 ]; then
     if [ -n "$rpv" ]; then ok "OCLP root patches installed ($rpv)"
@@ -264,7 +264,7 @@ do_status() {
   fi
   if [ "$(kernel_major)" = 25 ]; then
     step "Tahoe: Metal shim wrapper and user-client redirects"
-    shim_status
+    shim_status "$pend"
     local k f olds="" fails
     # OCLP's older AMDRadeonX5000 (Vega) / AMDRadeonX6000 (Navi) still have ForceLegacyMode: those need the redirects
     for k in AMDRadeonX5000 AMDRadeonX6000; do
@@ -280,7 +280,9 @@ do_status() {
          if [ -z "$dev" ]; then info "user-client redirects: checked only with the eGPU attached at boot"
          else
            local ul; ul=$(/usr/bin/log show --last boot --style compact --predicate 'eventMessage CONTAINS "KANDOR ioconnect"' 2>/dev/null)
-           if ! echo "$ul" | grep -q "watch installed"; then warn "user-client redirects: the shim wrapper did not run in this boot → menu 4 (shim-patch)"
+           if ! echo "$ul" | grep -q "watch installed"; then
+             if [ "$pend" = 1 ]; then info "user-client redirects: the shim wrapper did not run in this boot (a restart is pending)"
+             else warn "user-client redirects: the shim wrapper did not run in this boot → menu 4 (shim-patch)"; fi
            else
              fails=$(echo "$ul" | grep -cE 'sel 0x10[25] in=.*-> 0xe')
              if [ "${fails:-0}" = 0 ]; then ok "user-client redirects working (OCLP's older $olds, no failing 0x102/0x105 calls in this boot)"
@@ -314,15 +316,21 @@ shim_is_current() { grep -qa 'KANDOR_MODE=1 KANDOR_USER_REDIRECT=0' "$1" 2>/dev/
 shims_all_current() { local b t; t=$(shim_targets); [ -n "$t" ] || return 1
   for b in $t; do shim_is_current "/$(shim_rel "$b")/impostor.dylib" || return 1; done; }
 kry_loaded() { kmutil showloaded --list-only 2>/dev/null | grep -i "io.egpu.Kryptonite" || kextstat 2>/dev/null | grep -i "io.egpu.Kryptonite"; }
-shim_status() {
-  local b d t targets; targets=$(shim_targets)
-  if [ -z "$targets" ]; then info "no OCLP Metal shim for Vega or Navi (OCLP's root patch with the eGPU attached adds it)"; return; fi
+shim_status() { # shim_status [1 = a restart is pending: the running system is not what boots next]
+  local b d t targets pend="${1:-0}"; targets=$(shim_targets)
+  if [ -z "$targets" ]; then
+    if [ "$pend" = 1 ]; then info "no OCLP Metal shim for Vega or Navi in the running system yet (a restart is pending)"
+    else info "no OCLP Metal shim for Vega or Navi (OCLP's root patch with the eGPU attached adds it)"; fi
+    return
+  fi
   for b in $targets; do
     d="/$(shim_rel "$b")"; t="$(shim_family "$b") ($b)"
     if shim_is_ours "$d/impostor.dylib"; then
       if shim_is_current "$d/impostor.dylib"; then ok "$t: Kandor's shim wrapper installed"
+      elif [ "$pend" = 1 ]; then info "$t: an older build of the shim wrapper is running – menu 4 again if it was not done before this restart"
       else warn "$t: an older build of the shim wrapper → menu 4 (shim-patch)"; fi
       [ -f "$d/impostor_dortania.dylib" ] || bad "$t: impostor_dortania.dylib missing next to the wrapper!"
+    elif [ "$pend" = 1 ]; then info "$t: OCLP's original shim in the running system – if menu 4 was done, the restart applies Kandor's wrapper"
     else warn "$t: OCLP's original shim installed: boot with the eGPU attached will hang → menu 4 (shim-patch)"; fi
     [ -f "$(shim_backup "$b")" ] && ok "$t: backup of OCLP's shim for $(sw_vers -buildVersion) in backup/Shim/" \
       || info "$t: no backup of OCLP's shim yet (shim-patch makes one)"

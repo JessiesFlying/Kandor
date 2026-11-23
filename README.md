@@ -76,7 +76,7 @@ box on, then start the Mac.
 
 > [!IMPORTANT]
 > **Tahoe with a Navi card:** also connect a monitor to the Mac's own **HDMI port**. The Navi card shows no picture
-> until step 3a is done.
+> until step 3a is done and the Mac has restarted.
 
 ### 3. Install the graphic drivers
 
