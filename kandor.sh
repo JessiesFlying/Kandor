@@ -26,7 +26,6 @@ KRY_MAXKERNEL="25.99.99"; KRY_RANGE="Monterey to Tahoe"
 # installed into every bundle that has one (the eGPU is unplugged then, so the card can't be detected); each copy is
 # only loaded when its own driver is in use.
 SHIM_BUNDLES="AMDRadeonX5000MTLDriver AMDRadeonX6000MTLDriver"
-SHIM_LOG=/Users/Shared/kandor-shim.log
 KRY_KEXT="Kryptonite-$KRY_VERSION.kext"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 KEXTS="$HERE/Kexts"
@@ -48,8 +47,10 @@ bad()   { printf "  ${RED}✗${R} %s\n" "$*"; }
 info()  { printf "  ${BLU}·${R} %s\n" "$*"; }
 step()  { printf "\n${B}${CYN}▸ %s${R}\n" "$*"; }
 line()  { printf "${D}%s${R}\n" "────────────────────────────────────────────────────────────────────"; }
-die()   { printf "\n  ${RED}${B}Stopped:${R} %s\n  Nothing else was changed.%s\n\n" "$*" "${LOG:+ Log: $LOG}"; exit 1; }
-die_bad() { printf "\n  ${RED}${B}Stopped:${R} %s%s\n\n" "$*" "${LOG:+ Log: $LOG}"; exit 1; }   # when the rollback failed too
+DIE_NOTE="Nothing else was changed."   # efi sets its own note before it hands over to the optional shim step
+die()   { printf "\n  ${RED}${B}Stopped:${R} %s\n  %s%s\n\n" "$*" "$DIE_NOTE" "${LOG:+ Log: $LOG}"; exit 1; }
+die_bad() { printf "\n  ${RED}${B}Stopped:${R} %s\n%s\n" "$*" "${LOG:+  Log: $LOG
+}"; exit 1; }   # when the rollback failed too
 ask()   { # ask "question" -> 0 = yes
   local a; printf "\n  ${B}%s${R} [y/N] " "$1"; read -r a < /dev/tty; case "$a" in y|Y|yes|YES) return 0;; *) return 1;; esac; }
 choose() { # choose "prompt" [default] -> echo answer
@@ -317,7 +318,7 @@ shim_backup() {
   if [ ! -f "$n" ] && [ "$1" = AMDRadeonX5000MTLDriver ] && [ -f "$o" ]; then echo "$o"; else echo "$n"; fi
 }
 shim_is_ours() { grep -qa "impostor_dortania.dylib" "$1" 2>/dev/null; }   # every build of the wrapper re-exports the renamed original
-shim_is_current() { grep -qa 'KANDOR_MODE=1 KANDOR_USER_REDIRECT=0 KANDOR_SHIM=2' "$1" 2>/dev/null; }
+shim_is_current() { grep -qa 'KANDOR_MODE=1 KANDOR_USER_REDIRECT=0 KANDOR_SHIM=3' "$1" 2>/dev/null; }
 shims_all_current() { local b t; t=$(shim_targets); [ -n "$t" ] || return 1
   for b in $t; do shim_is_current "/$(shim_rel "$b")/impostor.dylib" || return 1; done; }
 kry_loaded() { kmutil showloaded --list-only 2>/dev/null | grep -i "io.egpu.Kryptonite" || kextstat 2>/dev/null | grep -i "io.egpu.Kryptonite"; }
@@ -351,18 +352,31 @@ shim_put_original() {
   [ -f "$bk" ] && cp -p "$bk" "$SD/impostor.dylib" && rm -f "$SD/impostor_dortania.dylib" \
     && chown root:wheel "$SD/impostor.dylib" && chmod 755 "$SD/impostor.dylib"
 }
-# the shim log: a plain root-owned file every process may append to; never follow or reuse a link
-shim_log_init() {
-  local t
-  if [ -L "$SHIM_LOG" ] || { [ -e "$SHIM_LOG" ] && { [ ! -f "$SHIM_LOG" ] || [ "$(stat -f %u "$SHIM_LOG")" != 0 ]; }; }; then
-    rm -f "$SHIM_LOG" || return 1
-  fi
-  if [ ! -e "$SHIM_LOG" ]; then
-    t=$(mktemp /Users/Shared/.kandor-shim.XXXXXX) || return 1
-    chmod 666 "$t" && mv -f "$t" "$SHIM_LOG" || { rm -f "$t"; return 1; }
-  fi
-  perl -MFcntl -e 'sysopen(my $f, $ARGV[0], O_WRONLY|O_APPEND|O_NOFOLLOW) or exit 1; print $f "$ARGV[1]\n"' \
-    "$SHIM_LOG" "---- $1 $(date)"
+# install and revert: every bundle is saved to build/shim-prev/ before it is changed, so a failure puts it back as it was
+PREV=""; touched=""
+shim_prev_init() { PREV="$HERE/build/shim-prev"; touched=""; rm -rf "$PREV" && mkdir -p "$PREV"; }
+shim_save() { # shim_save BUNDLE: keep the bundle's current shim files, then mark it as touched
+  local D="$MNT/$(shim_rel "$1")" f
+  mkdir -p "$PREV/$1" || return 1
+  for f in impostor.dylib impostor_dortania.dylib; do [ -f "$D/$f" ] && { cp -p "$D/$f" "$PREV/$1/$f" || return 1; }; done
+  touched="$touched $1"
+}
+shim_undo() {
+  local x f bad=0 D
+  for x in $touched; do D="$MNT/$(shim_rel "$x")"
+    for f in impostor.dylib impostor_dortania.dylib; do
+      if [ -f "$PREV/$x/$f" ]; then cp -p "$PREV/$x/$f" "$D/$f" && chown root:wheel "$D/$f" || bad=1
+      else rm -f "$D/$f" || bad=1; fi
+    done
+  done
+  return $bad
+}
+# shim_fail MSG [bless]: put the system volume back and stop; "bless" = the failure was bless itself
+shim_fail() {
+  local snap="Kandor did not try to create a new boot snapshot, so this run doesn't change the next boot"
+  [ "${2:-}" = bless ] && snap="It can't be verified which snapshot the next boot uses – don't restart; send the log"
+  if shim_undo; then umount "$MNT" 2>/dev/null; die_bad "$1 – the system volume was put back as it was. $snap"
+  else umount "$MNT" 2>/dev/null; die_bad "$1 – putting the system volume back failed as well (build/shim-prev/ has the previous files). Don't restart and don't run OCLP's root patch: send the log"; fi
 }
 shim_build() { # shim_build BUNDLE: builds the wrapper for one bundle (from the mounted system volume) into build/shim/BUNDLE/
   local b="$1" rel src BD="$HERE/build/shim/$1"; rel=$(shim_rel "$b")
@@ -371,12 +385,14 @@ shim_build() { # shim_build BUNDLE: builds the wrapper for one bundle (from the 
   rm -rf "$BD"; mkdir -p "$BD"; cp "$src" "$BD/impostor_dortania.dylib"
   # its own install name must point to the renamed file, or the re-export would load the wrapper itself
   install_name_tool -id "/$rel/impostor_dortania.dylib" "$BD/impostor_dortania.dylib" 2>>"$LOG" || die_umount "install_name_tool failed ($b)"
-  codesign -f -s - "$BD/impostor_dortania.dylib" >>"$LOG" 2>&1
+  codesign -f -s - "$BD/impostor_dortania.dylib" >>"$LOG" 2>&1 && codesign -v "$BD/impostor_dortania.dylib" >>"$LOG" 2>&1 \
+    || die_umount "signing failed ($b, impostor_dortania.dylib)"
   ( cd "$BD" && xcrun clang -arch x86_64 -dynamiclib -fno-objc-arc -O2 \
       -install_name "/$rel/impostor.dylib" -Wl,-reexport_library,./impostor_dortania.dylib \
       -framework Foundation -Wno-deprecated-declarations -o impostor.dylib "$HERE/shim/kandor_shim.m" ) >>"$LOG" 2>&1 \
     || die_umount "build failed for $b (see the log; grep for 'error:')"
-  codesign -f -s - -i impostor "$BD/impostor.dylib" >>"$LOG" 2>&1
+  codesign -f -s - -i impostor "$BD/impostor.dylib" >>"$LOG" 2>&1 && codesign -v "$BD/impostor.dylib" >>"$LOG" 2>&1 \
+    || die_umount "signing failed ($b, impostor.dylib)"
   otool -L "$BD/impostor.dylib" 2>>"$LOG" | grep -q "/$rel/impostor_dortania.dylib" || die_umount "re-export of impostor_dortania.dylib missing in the build ($b)"
   ok "built for $(shim_family "$b") ($b, $(lipo -archs "$BD/impostor.dylib"))"
 }
@@ -403,17 +419,7 @@ do_shim_patch() { # [after-efi]: called by efi, which has just installed Krypton
   for b in $targets; do shim_build "$b"; done
   ask "Install the wrapper for $(for b in $targets; do printf '%s ' "$(shim_family "$b")"; done | sed 's/ $//; s/ / and /g') (system volume, new boot snapshot)?" || die_umount "cancelled by user"
   step "Install"
-  # if a step fails, every bundle already touched is put back exactly as it was before this run (kept in build/shim-prev/)
-  local touched="" PREV="$HERE/build/shim-prev"
-  rm -rf "$PREV" && mkdir -p "$PREV" || die_umount "could not prepare $PREV"
-  shim_undo() { local x f ok=0 D; for x in $touched; do D="$MNT/$(shim_rel "$x")"
-      for f in impostor.dylib impostor_dortania.dylib; do
-        if [ -f "$PREV/$x/$f" ]; then cp -p "$PREV/$x/$f" "$D/$f" && chown root:wheel "$D/$f" || ok=1; else rm -f "$D/$f" || ok=1; fi
-      done; done; return $ok; }
-  shim_fail() {
-    if shim_undo; then die_umount "$1 – the system volume was put back as it was, no new boot snapshot was made"
-    else umount "$MNT" 2>/dev/null; die_bad "$1 – putting the system volume back failed as well; no new boot snapshot was made, so the running system is unchanged. Do not run OCLP's root patch before sending the log"; fi
-  }
+  shim_prev_init || die_umount "could not prepare build/shim-prev/"
   for b in $targets; do
     SD="$MNT/$(shim_rel "$b")"; bk=$(shim_backup "$b")
     if [ ! -f "$bk" ]; then
@@ -421,24 +427,24 @@ do_shim_patch() { # [after-efi]: called by efi, which has just installed Krypton
       if shim_is_ours "$SD/impostor.dylib"; then
         # the original was replaced without a backup here: rebuild it from OCLP's copy next to the wrapper
         # (same code, install name set back to impostor.dylib, re-signed ad hoc – not byte-identical)
-        cp "$SD/impostor_dortania.dylib" "$bk" && install_name_tool -id "/$(shim_rel "$b")/impostor.dylib" "$bk" 2>>"$LOG" \
-          && codesign -f -s - -i impostor "$bk" >>"$LOG" 2>&1 || shim_fail "backup failed ($b)"
+        rm -f "$bk.tmp"; cp "$SD/impostor_dortania.dylib" "$bk.tmp" && install_name_tool -id "/$(shim_rel "$b")/impostor.dylib" "$bk.tmp" 2>>"$LOG" \
+          && codesign -f -s - -i impostor "$bk.tmp" >>"$LOG" 2>&1 && codesign -v "$bk.tmp" >>"$LOG" 2>&1 && mv -f "$bk.tmp" "$bk" \
+          || { rm -f "$bk.tmp"; shim_fail "backup failed ($b)"; }
         warn "$(shim_family "$b"): no backup of OCLP's original shim existed – rebuilt one from the copy next to the wrapper (backup/Shim/$(sw_vers -buildVersion)/$b/)"
       else
-        cp -p "$SD/impostor.dylib" "$bk" || shim_fail "backup failed ($b)"
+        rm -f "$bk.tmp"; cp -p "$SD/impostor.dylib" "$bk.tmp" && mv -f "$bk.tmp" "$bk" || { rm -f "$bk.tmp"; shim_fail "backup failed ($b)"; }
         ok "$(shim_family "$b"): OCLP's original shim backed up to backup/Shim/$(sw_vers -buildVersion)/$b/"
       fi
     fi
-    mkdir -p "$PREV/$b" && cp -p "$SD/impostor.dylib" "$PREV/$b/" || shim_fail "could not save the current shim ($b)"
-    [ -f "$SD/impostor_dortania.dylib" ] && { cp -p "$SD/impostor_dortania.dylib" "$PREV/$b/" || shim_fail "could not save the current shim ($b)"; }
-    touched="$touched $b"
+    shim_save "$b" || shim_fail "could not save the current shim ($b)"
     cp "$HERE/build/shim/$b/impostor_dortania.dylib" "$SD/impostor_dortania.dylib" && cp "$HERE/build/shim/$b/impostor.dylib" "$SD/impostor.dylib" \
       && chown root:wheel "$SD/impostor.dylib" "$SD/impostor_dortania.dylib" && chmod 755 "$SD/impostor.dylib" "$SD/impostor_dortania.dylib" \
       || shim_fail "install failed ($b)"
     ok "$(shim_family "$b"): installed impostor.dylib (Kandor's wrapper) + impostor_dortania.dylib (OCLP's original)"
   done
-  shim_log_init "install shim-patch ($(echo $targets))" || warn "could not prepare $SHIM_LOG (the wrapper then only logs to the unified log)"
-  shim_snapshot || shim_fail "bless failed (send the log)"
+  # earlier wrappers also wrote a file log; the current one only uses the unified log (menu 2 collects it)
+  rm -f /Users/Shared/kandor-shim.log /Users/Shared/kry-shim.log 2>/dev/null
+  shim_snapshot || shim_fail "bless failed" bless
   if ioreg -r -n display@0 -d 1 2>/dev/null | grep 'IOPCIDevice' | grep -qv ' inactive'; then
     printf "\n  ${GRN}${B}Done.${R} Restart (the eGPU stays attached). Afterwards: menu 1 (status); if something is wrong: menu 2 (log).\n"
   else
@@ -460,16 +466,18 @@ do_shim_patch_revert() {
   [ -n "$todo" ] || die_umount "nothing to restore"
   warn "with OCLP's original shim a boot with the eGPU attached hangs – unplug the eGPU first"
   ask "Restore OCLP's shim for$(for b in $todo; do printf ' %s' "$(shim_family "$b")"; done) (system volume, new boot snapshot)?" || die_umount "cancelled by user"
+  shim_prev_init || die_umount "could not prepare build/shim-prev/"
   for b in $todo; do
-    shim_put_original "$b" || die_umount "restore failed ($b) – no new boot snapshot was made, the running system is unchanged; run menu 5 again, or use OCLP: Revert Root Patches"
+    shim_save "$b" || shim_fail "could not save the current shim ($b)"
+    shim_put_original "$b" || shim_fail "restore failed ($b)"
     ok "$(shim_family "$b"): OCLP's original impostor.dylib restored"
   done
-  shim_snapshot || die_umount "bless failed – no new boot snapshot was made, the running system is unchanged (send the log)"
+  shim_snapshot || shim_fail "bless failed" bless
   printf "\n  ${GRN}${B}Done.${R} Reboot (without the eGPU).\n"
 }
 do_log() { # read-only: everything needed to diagnose the eGPU, on every macOS
   local O="$HERE/logs/log-$(date +%Y%m%d-%H%M%S)" ref="$HERE/logs/.last-log" f
-  mkdir -p "$O"
+  WROTE=1; mkdir -p "$O"
   # crash reports since the last log run; on the first run those of the last 24 hours
   [ -f "$ref" ] || touch -t "$(date -v-1d +%Y%m%d%H%M)" "$ref"
   step "Collect the logs into logs/$(basename "$O")/"
@@ -502,24 +510,24 @@ do_log() { # read-only: everything needed to diagnose the eGPU, on every macOS
   /usr/bin/log show --last 2h --style compact --predicate 'process == "WindowServer" AND (messageType == error OR messageType == fault)' \
     > "$O/windowserver-errors.log" 2>/dev/null && ok "WindowServer errors ($(wc -l < "$O/windowserver-errors.log" | tr -d ' ') lines)"
   if [ "$(kernel_major)" = 25 ]; then
-    [ -f "$SHIM_LOG" ] && [ ! -L "$SHIM_LOG" ] && cp "$SHIM_LOG" "$O/kandor-shim.log" && ok "kandor-shim.log ($(wc -l < "$O/kandor-shim.log" | tr -d ' ') lines)"
     # sandboxed processes (WindowServer) only reach the unified log
     /usr/bin/log show --last 2h --style compact --predicate 'eventMessage CONTAINS "KANDOR "' > "$O/kandor-unified.log" 2>/dev/null && ok "shim wrapper messages from the unified log"
   fi
   # only graphics-related crash reports and kernel panics (the zip is shared publicly; other apps' reports stay private)
   local cfail=0
   for f in /Library/Logs/DiagnosticReports/* /Users/*/Library/Logs/DiagnosticReports/*; do
-    [ -f "$f" ] && [ "$f" -nt "$ref" ] || continue
+    [ ! -L "$f" ] && [ -f "$f" ] && [ "$f" -nt "$ref" ] || continue   # never follow a link (user folders are not trusted)
     case "$(basename "$f")" in
       WindowServer*|displaypolicyd*|MTLCompilerService*|*AMD*|*Radeon*|*.panic|panic*|Kernel-*) ;;
       *) continue;;
     esac
-    if cp "$f" "$O/"; then warn "crash report: $(basename "$f")"; else cfail=1; fi
+    if cp -P "$f" "$O/"; then warn "crash report: $(basename "$f")"; else cfail=1; fi
   done
   [ "$cfail" = 0 ] && touch "$ref"
   ls /Library/Logs/DiagnosticReports/*.panic /Library/Logs/DiagnosticReports/panic*.ips >/dev/null 2>&1 || ok "no kernel panic reports on this Mac"
   local Z; Z="$HERE/kandor-$(basename "$O").zip"
-  ditto -c -k --norsrc --noextattr --keepParent "$O" "$Z" 2>/dev/null && ok "zipped for sharing: $(basename "$Z")"
+  if ditto -c -k --norsrc --noextattr --keepParent "$O" "$Z" 2>/dev/null; then ok "zipped for sharing: $(basename "$Z")"
+  else rm -f "$Z"; bad "could not create the zip – send the folder logs/$(basename "$O")/ instead"; return 1; fi
   printf "\n  ${GRN}${B}Done.${R} Logs in %s\n" "$O"
   [ -f "$Z" ] && printf "  To ask for help, send ${B}%s${R} (in the Kandor folder).\n" "$(basename "$Z")"
 }
@@ -658,6 +666,7 @@ do_efi() {
     && [ "$(patch_comments "$CFG" | cut -d'|' -f2- | grep -vE "^$LV_RE")" = "$p_others_before" ] \
     || efi_fail "kernel patch list changed unexpectedly"
   rm -rf "$OC"/Kexts/Kryptonite*.kext
+  ls -d "$OC"/Kexts/Kryptonite*.kext >/dev/null 2>&1 && efi_fail "could not remove the old Kryptonite kext"
   while IFS='|' read -r k mn mx c; do
     cp -R "$KEXTS/$k" "$OC/Kexts/" && [ -f "$OC/Kexts/$k/Contents/MacOS/Kryptonite" ] || efi_fail "could not copy $k"
     add_entry "$CFG" "$k" "$mn" "$mx" "$c" || efi_fail "could not add the entry for $k"; ok "added $k ($mn – $mx)"
@@ -694,7 +703,7 @@ do_efi() {
       else printf "  Kandor's shim wrapper is already installed: shut down, attach the eGPU, boot.\n"; fi
     else
       printf "\n  Tahoe also needs Kandor's Metal shim wrapper (menu 4); no reboot needed in between.\n"
-      if ask "Install it now?"; then do_shim_patch after-efi
+      if ask "Install it now?"; then DIE_NOTE="The EFI update above is kept (it is complete); only the shim step stopped."; do_shim_patch after-efi
       else printf "\n  Before booting with the eGPU attached: menu 4 (shim-patch).\n"; fi
     fi
   elif [ "$(kernel_major)" -ge 22 ] && [ ! -f /System/Library/CoreServices/OpenCore-Legacy-Patcher.plist ]; then
@@ -721,20 +730,21 @@ mount_root() {
 need_root
 # backup/ and logs/ are written as root (the EFI copy keeps the FAT volume's root-only modes, so Finder shows it as
 # empty and locked): hand both folders to the user who ran sudo when the script ends
+WROTE=""   # set by actions that write into backup/ or logs/
 own_by_user() {
-  [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ] || return 0
+  [ -n "$WROTE" ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ] || return 0
   chown -R "$SUDO_USER" "$HERE/backup" "$HERE/logs" "$HERE"/kandor-log-*.zip 2>/dev/null
   chmod -R u+rwX "$HERE/backup" "$HERE/logs" 2>/dev/null
   return 0
 }
-case "${1:-menu}" in status|credits) ;; *) trap own_by_user EXIT;; esac
+trap own_by_user EXIT
 LOG=""
 # with_log NAME CMD...: runs an action that changes something in a subshell, with its screen output copied
 # (without colours) to logs/<date>-NAME.log; read-only actions write no log
 with_log() {
   local name="$1"; shift
   local rc
-  mkdir -p "$HERE/logs"
+  WROTE=1; mkdir -p "$HERE/logs"
   ( LOG="$HERE/logs/$(date +%Y%m%d-%H%M%S)-$name.log"
     banner | sed 's/\x1b\[[0-9;]*m//g' > "$LOG"
     exec > >(tee >(sed -l 's/\x1b\[[0-9;]*m//g' >> "$LOG")) 2>&1
@@ -749,7 +759,7 @@ RC=0
 case "${1:-menu}" in
   credits) credits;;
   status) do_status;;
-  log) do_log;;
+  log) do_log; RC=$?;;
   efi) with_log efi do_efi; RC=$?;;
   shim-patch) with_log shim-patch do_shim_patch; RC=$?;;
   shim-patch-revert) with_log shim-patch-revert do_shim_patch_revert; RC=$?;;

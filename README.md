@@ -69,12 +69,12 @@ sudo bash kandor.sh
 ```
 
 Then choose menu option **#3: "efi"**. It asks before it changes anything and keeps a backup of your EFI. If a step
-fails, it puts the EFI back as it was.
+of the EFI update fails, it puts the EFI back as it was.
 
 > [!NOTE]
 > "efi" also adds one kernel patch to OpenCore: OCLP's "Disable Library Validation Enforcement", so macOS Tahoe can
 > load Kandor's graphics fix. It is only active on Tahoe and stays in the EFI on the other macOS versions (all
-> macOS on the Mac start from the same EFI).
+> macOS on the Mac start from the same EFI). Menu option **#5: "shim-patch-revert"** doesn't remove it either.
 
 ### 2. Shut down and attach the eGPU
 

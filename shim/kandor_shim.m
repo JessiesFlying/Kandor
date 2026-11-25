@@ -14,7 +14,7 @@
 // It also logs failing IOConnect calls of the process; the two user-client redirects themselves are done by
 // Kryptonite in the kernel (X5000 from 1.2.0, X6000 from 1.3.0; see the IOConnect section).
 //
-// Log: /Users/Shared/kandor-shim.log (kept across reboots; fallback /tmp/kandor-shim.log).
+// Log: the unified log only (kandor.sh log collects it).
 
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
@@ -30,7 +30,6 @@
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
 #include <execinfo.h>
-#include <fcntl.h>
 
 // the tag read by kandor.sh status (earlier test builds had a logging-only mode 0 and userland redirects)
 #define KANDOR_MODE 1
@@ -39,17 +38,14 @@
 typedef void *(*acc_t)(id, SEL);
 #define KANDOR_STR2(x) #x
 #define KANDOR_STR(x) KANDOR_STR2(x)
-__attribute__((used)) static const char kandor_mode_tag[] = "KANDOR_MODE=" KANDOR_STR(KANDOR_MODE) " KANDOR_USER_REDIRECT=" KANDOR_STR(KANDOR_USER_REDIRECT) " KANDOR_SHIM=2";   // read by kandor.sh (shim status); KANDOR_SHIM is bumped when the wrapper changes, so older installs show as outdated
+__attribute__((used)) static const char kandor_mode_tag[] = "KANDOR_MODE=" KANDOR_STR(KANDOR_MODE) " KANDOR_USER_REDIRECT=" KANDOR_STR(KANDOR_USER_REDIRECT) " KANDOR_SHIM=3";   // read by kandor.sh (shim status); KANDOR_SHIM is bumped when the wrapper changes, so older installs show as outdated
 
-// /Users/Shared survives a reboot (/tmp does not); one line per event, every line with process and pid
-// also to the unified log, because sandboxed processes (WindowServer) cannot write the file:
+// one line per event, to the unified log (it reaches sandboxed processes like WindowServer too):
 //   log show --last 30m --predicate 'eventMessage CONTAINS "KANDOR "'
 static void klog(const char *fmt, ...) {
     char buf[600]; va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof buf, fmt, ap); va_end(ap);
     os_log_error(OS_LOG_DEFAULT, "%{public}s", buf);
-    // the file is created by kandor.sh (shim-patch); only append to it, never create it or follow a link
-    int fd = open("/Users/Shared/kandor-shim.log", O_WRONLY | O_APPEND | O_NOFOLLOW | O_CLOEXEC); if (fd < 0) return;
-    dprintf(fd, "%s[%d] %s", getprogname(), getpid(), buf); close(fd);
+    // unified log only (kandor.sh log collects it); no file log, so nothing shared on disk can be redirected
 }
 
 static const char *module_of(const void *addr) {
