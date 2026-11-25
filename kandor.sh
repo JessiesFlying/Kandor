@@ -519,7 +519,7 @@ do_log() { # read-only: everything needed to diagnose the eGPU, on every macOS
   [ "$cfail" = 0 ] && touch "$ref"
   ls /Library/Logs/DiagnosticReports/*.panic /Library/Logs/DiagnosticReports/panic*.ips >/dev/null 2>&1 || ok "no kernel panic reports on this Mac"
   local Z; Z="$HERE/kandor-$(basename "$O").zip"
-  ditto -c -k --keepParent "$O" "$Z" 2>/dev/null && ok "zipped for sharing: $(basename "$Z")"
+  ditto -c -k --norsrc --noextattr --keepParent "$O" "$Z" 2>/dev/null && ok "zipped for sharing: $(basename "$Z")"
   printf "\n  ${GRN}${B}Done.${R} Logs in %s\n" "$O"
   [ -f "$Z" ] && printf "  To ask for help, send ${B}%s${R} (in the Kandor folder).\n" "$(basename "$Z")"
 }
