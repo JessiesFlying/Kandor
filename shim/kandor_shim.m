@@ -30,6 +30,7 @@
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
 #include <execinfo.h>
+#include <fcntl.h>
 
 // the tag read by kandor.sh status (earlier test builds had a logging-only mode 0 and userland redirects)
 #define KANDOR_MODE 1
@@ -38,7 +39,7 @@
 typedef void *(*acc_t)(id, SEL);
 #define KANDOR_STR2(x) #x
 #define KANDOR_STR(x) KANDOR_STR2(x)
-__attribute__((used)) static const char kandor_mode_tag[] = "KANDOR_MODE=" KANDOR_STR(KANDOR_MODE) " KANDOR_USER_REDIRECT=" KANDOR_STR(KANDOR_USER_REDIRECT);   // read by kandor.sh (shim status)
+__attribute__((used)) static const char kandor_mode_tag[] = "KANDOR_MODE=" KANDOR_STR(KANDOR_MODE) " KANDOR_USER_REDIRECT=" KANDOR_STR(KANDOR_USER_REDIRECT) " KANDOR_SHIM=2";   // read by kandor.sh (shim status); KANDOR_SHIM is bumped when the wrapper changes, so older installs show as outdated
 
 // /Users/Shared survives a reboot (/tmp does not); one line per event, every line with process and pid
 // also to the unified log, because sandboxed processes (WindowServer) cannot write the file:
@@ -46,8 +47,9 @@ __attribute__((used)) static const char kandor_mode_tag[] = "KANDOR_MODE=" KANDO
 static void klog(const char *fmt, ...) {
     char buf[600]; va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof buf, fmt, ap); va_end(ap);
     os_log_error(OS_LOG_DEFAULT, "%{public}s", buf);
-    FILE *f = fopen("/Users/Shared/kandor-shim.log", "a"); if (!f) f = fopen("/tmp/kandor-shim.log", "a"); if (!f) return;
-    fprintf(f, "%s[%d] %s", getprogname(), getpid(), buf); fclose(f);
+    // the file is created by kandor.sh (shim-patch); only append to it, never create it or follow a link
+    int fd = open("/Users/Shared/kandor-shim.log", O_WRONLY | O_APPEND | O_NOFOLLOW | O_CLOEXEC); if (fd < 0) return;
+    dprintf(fd, "%s[%d] %s", getprogname(), getpid(), buf); close(fd);
 }
 
 static const char *module_of(const void *addr) {

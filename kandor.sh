@@ -49,6 +49,7 @@ info()  { printf "  ${BLU}·${R} %s\n" "$*"; }
 step()  { printf "\n${B}${CYN}▸ %s${R}\n" "$*"; }
 line()  { printf "${D}%s${R}\n" "────────────────────────────────────────────────────────────────────"; }
 die()   { printf "\n  ${RED}${B}Stopped:${R} %s\n  Nothing else was changed.%s\n\n" "$*" "${LOG:+ Log: $LOG}"; exit 1; }
+die_bad() { printf "\n  ${RED}${B}Stopped:${R} %s%s\n\n" "$*" "${LOG:+ Log: $LOG}"; exit 1; }   # when the rollback failed too
 ask()   { # ask "question" -> 0 = yes
   local a; printf "\n  ${B}%s${R} [y/N] " "$1"; read -r a < /dev/tty; case "$a" in y|Y|yes|YES) return 0;; *) return 1;; esac; }
 choose() { # choose "prompt" [default] -> echo answer
@@ -316,7 +317,7 @@ shim_backup() {
   if [ ! -f "$n" ] && [ "$1" = AMDRadeonX5000MTLDriver ] && [ -f "$o" ]; then echo "$o"; else echo "$n"; fi
 }
 shim_is_ours() { grep -qa "impostor_dortania.dylib" "$1" 2>/dev/null; }   # every build of the wrapper re-exports the renamed original
-shim_is_current() { grep -qa 'KANDOR_MODE=1 KANDOR_USER_REDIRECT=0' "$1" 2>/dev/null; }
+shim_is_current() { grep -qa 'KANDOR_MODE=1 KANDOR_USER_REDIRECT=0 KANDOR_SHIM=2' "$1" 2>/dev/null; }
 shims_all_current() { local b t; t=$(shim_targets); [ -n "$t" ] || return 1
   for b in $t; do shim_is_current "/$(shim_rel "$b")/impostor.dylib" || return 1; done; }
 kry_loaded() { kmutil showloaded --list-only 2>/dev/null | grep -i "io.egpu.Kryptonite" || kextstat 2>/dev/null | grep -i "io.egpu.Kryptonite"; }
@@ -340,9 +341,28 @@ shim_status() { # shim_status [1 = a restart is pending: the running system is n
       || info "$t: no backup of OCLP's shim yet (shim-patch makes one)"
   done
 }
-shim_snapshot() {
-  bless --folder "$MNT/System/Library/CoreServices" --bootefi --create-snapshot >> "$LOG" 2>&1 || die "bless failed – do not reboot, send the log"
-  ok "new boot snapshot created"; umount "$MNT" 2>/dev/null
+shim_snapshot() {   # 1 = bless failed (the caller decides what to put back)
+  bless --folder "$MNT/System/Library/CoreServices" --bootefi --create-snapshot >> "$LOG" 2>&1 || return 1
+  ok "new boot snapshot created"; umount "$MNT" 2>/dev/null; return 0
+}
+# put OCLP's original shim back into one bundle on the mounted system volume (from backup/Shim/)
+shim_put_original() {
+  local SD="$MNT/$(shim_rel "$1")" bk; bk=$(shim_backup "$1")
+  [ -f "$bk" ] && cp -p "$bk" "$SD/impostor.dylib" && rm -f "$SD/impostor_dortania.dylib" \
+    && chown root:wheel "$SD/impostor.dylib" && chmod 755 "$SD/impostor.dylib"
+}
+# the shim log: a plain root-owned file every process may append to; never follow or reuse a link
+shim_log_init() {
+  local t
+  if [ -L "$SHIM_LOG" ] || { [ -e "$SHIM_LOG" ] && { [ ! -f "$SHIM_LOG" ] || [ "$(stat -f %u "$SHIM_LOG")" != 0 ]; }; }; then
+    rm -f "$SHIM_LOG" || return 1
+  fi
+  if [ ! -e "$SHIM_LOG" ]; then
+    t=$(mktemp /Users/Shared/.kandor-shim.XXXXXX) || return 1
+    chmod 666 "$t" && mv -f "$t" "$SHIM_LOG" || { rm -f "$t"; return 1; }
+  fi
+  perl -MFcntl -e 'sysopen(my $f, $ARGV[0], O_WRONLY|O_APPEND|O_NOFOLLOW) or exit 1; print $f "$ARGV[1]\n"' \
+    "$SHIM_LOG" "---- $1 $(date)"
 }
 shim_build() { # shim_build BUNDLE: builds the wrapper for one bundle (from the mounted system volume) into build/shim/BUNDLE/
   local b="$1" rel src BD="$HERE/build/shim/$1"; rel=$(shim_rel "$b")
@@ -383,6 +403,17 @@ do_shim_patch() { # [after-efi]: called by efi, which has just installed Krypton
   for b in $targets; do shim_build "$b"; done
   ask "Install the wrapper for $(for b in $targets; do printf '%s ' "$(shim_family "$b")"; done | sed 's/ $//; s/ / and /g') (system volume, new boot snapshot)?" || die_umount "cancelled by user"
   step "Install"
+  # if a step fails, every bundle already touched is put back exactly as it was before this run (kept in build/shim-prev/)
+  local touched="" PREV="$HERE/build/shim-prev"
+  rm -rf "$PREV" && mkdir -p "$PREV" || die_umount "could not prepare $PREV"
+  shim_undo() { local x f ok=0 D; for x in $touched; do D="$MNT/$(shim_rel "$x")"
+      for f in impostor.dylib impostor_dortania.dylib; do
+        if [ -f "$PREV/$x/$f" ]; then cp -p "$PREV/$x/$f" "$D/$f" && chown root:wheel "$D/$f" || ok=1; else rm -f "$D/$f" || ok=1; fi
+      done; done; return $ok; }
+  shim_fail() {
+    if shim_undo; then die_umount "$1 – the system volume was put back as it was, no new boot snapshot was made"
+    else umount "$MNT" 2>/dev/null; die_bad "$1 – putting the system volume back failed as well; no new boot snapshot was made, so the running system is unchanged. Do not run OCLP's root patch before sending the log"; fi
+  }
   for b in $targets; do
     SD="$MNT/$(shim_rel "$b")"; bk=$(shim_backup "$b")
     if [ ! -f "$bk" ]; then
@@ -391,20 +422,23 @@ do_shim_patch() { # [after-efi]: called by efi, which has just installed Krypton
         # the original was replaced without a backup here: rebuild it from OCLP's copy next to the wrapper
         # (same code, install name set back to impostor.dylib, re-signed ad hoc – not byte-identical)
         cp "$SD/impostor_dortania.dylib" "$bk" && install_name_tool -id "/$(shim_rel "$b")/impostor.dylib" "$bk" 2>>"$LOG" \
-          && codesign -f -s - -i impostor "$bk" >>"$LOG" 2>&1 || die "backup failed ($b)"
+          && codesign -f -s - -i impostor "$bk" >>"$LOG" 2>&1 || shim_fail "backup failed ($b)"
         warn "$(shim_family "$b"): no backup of OCLP's original shim existed – rebuilt one from the copy next to the wrapper (backup/Shim/$(sw_vers -buildVersion)/$b/)"
       else
-        cp -p "$SD/impostor.dylib" "$bk" || die "backup failed ($b)"
+        cp -p "$SD/impostor.dylib" "$bk" || shim_fail "backup failed ($b)"
         ok "$(shim_family "$b"): OCLP's original shim backed up to backup/Shim/$(sw_vers -buildVersion)/$b/"
       fi
     fi
+    mkdir -p "$PREV/$b" && cp -p "$SD/impostor.dylib" "$PREV/$b/" || shim_fail "could not save the current shim ($b)"
+    [ -f "$SD/impostor_dortania.dylib" ] && { cp -p "$SD/impostor_dortania.dylib" "$PREV/$b/" || shim_fail "could not save the current shim ($b)"; }
+    touched="$touched $b"
     cp "$HERE/build/shim/$b/impostor_dortania.dylib" "$SD/impostor_dortania.dylib" && cp "$HERE/build/shim/$b/impostor.dylib" "$SD/impostor.dylib" \
-      || die "copy failed ($b)"
-    chown root:wheel "$SD/impostor.dylib" "$SD/impostor_dortania.dylib"; chmod 755 "$SD/impostor.dylib" "$SD/impostor_dortania.dylib"
+      && chown root:wheel "$SD/impostor.dylib" "$SD/impostor_dortania.dylib" && chmod 755 "$SD/impostor.dylib" "$SD/impostor_dortania.dylib" \
+      || shim_fail "install failed ($b)"
     ok "$(shim_family "$b"): installed impostor.dylib (Kandor's wrapper) + impostor_dortania.dylib (OCLP's original)"
   done
-  touch "$SHIM_LOG" && chmod 666 "$SHIM_LOG" && echo "---- install shim-patch ($(echo $targets)) $(date)" >> "$SHIM_LOG"
-  shim_snapshot
+  shim_log_init "install shim-patch ($(echo $targets))" || warn "could not prepare $SHIM_LOG (the wrapper then only logs to the unified log)"
+  shim_snapshot || shim_fail "bless failed (send the log)"
   if ioreg -r -n display@0 -d 1 2>/dev/null | grep 'IOPCIDevice' | grep -qv ' inactive'; then
     printf "\n  ${GRN}${B}Done.${R} Restart (the eGPU stays attached). Afterwards: menu 1 (status); if something is wrong: menu 2 (log).\n"
   else
@@ -427,12 +461,10 @@ do_shim_patch_revert() {
   warn "with OCLP's original shim a boot with the eGPU attached hangs – unplug the eGPU first"
   ask "Restore OCLP's shim for$(for b in $todo; do printf ' %s' "$(shim_family "$b")"; done) (system volume, new boot snapshot)?" || die_umount "cancelled by user"
   for b in $todo; do
-    SD="$MNT/$(shim_rel "$b")"
-    cp -p "$(shim_backup "$b")" "$SD/impostor.dylib" && rm -f "$SD/impostor_dortania.dylib" || die "restore failed ($b)"
-    chown root:wheel "$SD/impostor.dylib"; chmod 755 "$SD/impostor.dylib"
+    shim_put_original "$b" || die_umount "restore failed ($b) – no new boot snapshot was made, the running system is unchanged; run menu 5 again, or use OCLP: Revert Root Patches"
     ok "$(shim_family "$b"): OCLP's original impostor.dylib restored"
   done
-  shim_snapshot
+  shim_snapshot || die_umount "bless failed – no new boot snapshot was made, the running system is unchanged (send the log)"
   printf "\n  ${GRN}${B}Done.${R} Reboot (without the eGPU).\n"
 }
 do_log() { # read-only: everything needed to diagnose the eGPU, on every macOS
@@ -442,7 +474,7 @@ do_log() { # read-only: everything needed to diagnose the eGPU, on every macOS
   [ -f "$ref" ] || touch -t "$(date -v-1d +%Y%m%d%H%M)" "$ref"
   step "Collect the logs into logs/$(basename "$O")/"
   ( do_status ) 2>&1 | sed 's/\x1b\[[0-9;]*m//g' > "$O/status.txt" && ok "status (status.txt)"
-  for f in $(ls -t "$HERE"/logs/*.log 2>/dev/null | head -5); do cp "$f" "$O/"; done
+  ls -t "$HERE"/logs/*.log 2>/dev/null | head -5 | while IFS= read -r f; do cp "$f" "$O/"; done
   ls "$O"/*.log >/dev/null 2>&1 && ok "the last Kandor action logs (efi, shim-patch, …)"
   { echo "== sw_vers / kernel"; sw_vers; uname -a
     echo; echo "== boot-args"; nvram boot-args 2>/dev/null
@@ -465,20 +497,26 @@ do_log() { # read-only: everything needed to diagnose the eGPU, on every macOS
   } > "$O/info.txt" 2>&1; ok "system info (info.txt: versions, loaded kexts, driver md5s, displays, Thunderbolt)"
   /usr/bin/log show --last 2h --style compact --predicate 'process == "kernel" AND (eventMessage CONTAINS[c] "AMD" OR eventMessage CONTAINS[c] "Radeon" OR eventMessage CONTAINS[c] "GPU" OR eventMessage CONTAINS[c] "IOAccel" OR eventMessage CONTAINS[c] "AGDC" OR eventMessage CONTAINS[c] "Kryptonite" OR eventMessage CONTAINS[c] "framebuffer" OR eventMessage CONTAINS "Library Validation")' \
     > "$O/kernel-gpu.log" 2>/dev/null && ok "kernel GPU messages ($(wc -l < "$O/kernel-gpu.log" | tr -d ' ') lines)"
-  for f in $(ls -t /var/log/displaypolicy/displaypolicyd.*.log 2>/dev/null | head -3); do cp "$f" "$O/"; done
+  ls -t /var/log/displaypolicy/displaypolicyd.*.log 2>/dev/null | head -3 | while IFS= read -r f; do cp "$f" "$O/"; done
   ls "$O"/displaypolicyd.* >/dev/null 2>&1 && ok "display policy logs (the three newest: one per GPU / PCI address)"
   /usr/bin/log show --last 2h --style compact --predicate 'process == "WindowServer" AND (messageType == error OR messageType == fault)' \
     > "$O/windowserver-errors.log" 2>/dev/null && ok "WindowServer errors ($(wc -l < "$O/windowserver-errors.log" | tr -d ' ') lines)"
   if [ "$(kernel_major)" = 25 ]; then
-    [ -f "$SHIM_LOG" ] && cp "$SHIM_LOG" "$O/kandor-shim.log" && ok "kandor-shim.log ($(wc -l < "$SHIM_LOG" | tr -d ' ') lines)"
-    [ -f /tmp/kandor-shim.log ] && cp /tmp/kandor-shim.log "$O/kandor-shim-tmp.log" && ok "kandor-shim-tmp.log ($(wc -l < /tmp/kandor-shim.log | tr -d ' ') lines)"
+    [ -f "$SHIM_LOG" ] && [ ! -L "$SHIM_LOG" ] && cp "$SHIM_LOG" "$O/kandor-shim.log" && ok "kandor-shim.log ($(wc -l < "$O/kandor-shim.log" | tr -d ' ') lines)"
     # sandboxed processes (WindowServer) only reach the unified log
     /usr/bin/log show --last 2h --style compact --predicate 'eventMessage CONTAINS "KANDOR "' > "$O/kandor-unified.log" 2>/dev/null && ok "shim wrapper messages from the unified log"
   fi
-  for f in /Library/Logs/DiagnosticReports/WindowServer*.ips /Library/Logs/DiagnosticReports/*.panic /Library/Logs/DiagnosticReports/panic*.ips /Users/*/Library/Logs/DiagnosticReports/*.ips; do
-    [ -f "$f" ] && [ "$f" -nt "$ref" ] && cp "$f" "$O/" && warn "crash report: $(basename "$f")"
+  # only graphics-related crash reports and kernel panics (the zip is shared publicly; other apps' reports stay private)
+  local cfail=0
+  for f in /Library/Logs/DiagnosticReports/* /Users/*/Library/Logs/DiagnosticReports/*; do
+    [ -f "$f" ] && [ "$f" -nt "$ref" ] || continue
+    case "$(basename "$f")" in
+      WindowServer*|displaypolicyd*|MTLCompilerService*|*AMD*|*Radeon*|*.panic|panic*|Kernel-*) ;;
+      *) continue;;
+    esac
+    if cp "$f" "$O/"; then warn "crash report: $(basename "$f")"; else cfail=1; fi
   done
-  touch "$ref"
+  [ "$cfail" = 0 ] && touch "$ref"
   ls /Library/Logs/DiagnosticReports/*.panic /Library/Logs/DiagnosticReports/panic*.ips >/dev/null 2>&1 || ok "no kernel panic reports on this Mac"
   local Z; Z="$HERE/kandor-$(basename "$O").zip"
   ditto -c -k --keepParent "$O" "$Z" 2>/dev/null && ok "zipped for sharing: $(basename "$Z")"
@@ -528,7 +566,7 @@ patch_comments() { local i=0 n; n=$(patch_count "$1"); while [ $i -lt $n ]; do e
 # limited to Tahoe: lets WindowServer load the ad-hoc signed shim wrapper with AMFI on (instead of amfi_get_out_of_my_way=1)
 LV_COMMENT="Kandor: Disable Library Validation Enforcement (OCLP patch, Tahoe shim)"
 LV_RE="[^|]*: Disable Library Validation Enforcement \(OCLP patch, Tahoe shim\)$"   # marks Kandor's own copy in config.plist (efi finds and replaces it); OCLP's own entry has no prefix
-LV_XML="<dict><key>Arch</key><string>x86_64</string><key>Base</key><string>_cs_require_lv</string><key>Comment</key><string>$LV_COMMENT</string><key>Count</key><integer>0</integer><key>Enabled</key><true/><key>Find</key><data></data><key>Identifier</key><string>kernel</string><key>Limit</key><integer>0</integer><key>Mask</key><data></data><key>MaxKernel</key><string></string><key>MinKernel</key><string>25.0.0</string><key>Replace</key><data>uAAAAADD</data><key>ReplaceMask</key><data></data><key>Skip</key><integer>0</integer></dict>"
+LV_XML="<dict><key>Arch</key><string>x86_64</string><key>Base</key><string>_cs_require_lv</string><key>Comment</key><string>$LV_COMMENT</string><key>Count</key><integer>0</integer><key>Enabled</key><true/><key>Find</key><data></data><key>Identifier</key><string>kernel</string><key>Limit</key><integer>0</integer><key>Mask</key><data></data><key>MaxKernel</key><string>25.99.99</string><key>MinKernel</key><string>25.0.0</string><key>Replace</key><data>uAAAAADD</data><key>ReplaceMask</key><data></data><key>Skip</key><integer>0</integer></dict>"
 # Kryptonite entries "index|BundlePath|MinKernel|MaxKernel|Enabled"
 kry_entries() {
   local cfg="$1" i=0 n bp; n=$(kext_count "$cfg")
@@ -540,11 +578,11 @@ kry_entries() {
 }
 add_entry() { # cfg bundle min max comment
   local cfg="$1" n
-  plutil -insert Kernel.Add -json "{\"Arch\":\"x86_64\",\"BundlePath\":\"$2\",\"Comment\":\"$5\",\"Enabled\":true,\"ExecutablePath\":\"Contents/MacOS/Kryptonite\",\"MaxKernel\":\"$4\",\"MinKernel\":\"$3\",\"PlistPath\":\"Contents/Info.plist\"}" -append "$cfg" || die "plutil could not add $2"
+  plutil -insert Kernel.Add -json "{\"Arch\":\"x86_64\",\"BundlePath\":\"$2\",\"Comment\":\"$5\",\"Enabled\":true,\"ExecutablePath\":\"Contents/MacOS/Kryptonite\",\"MaxKernel\":\"$4\",\"MinKernel\":\"$3\",\"PlistPath\":\"Contents/Info.plist\"}" -append "$cfg" || return 1
   n=$(( $(kext_count "$cfg") - 1 ))
   [ "$(pl "Kernel.Add.$n.BundlePath" "$cfg")" = "$2" ] && [ "$(pl "Kernel.Add.$n.MinKernel" "$cfg")" = "$3" ] \
     && [ "$(pl "Kernel.Add.$n.MaxKernel" "$cfg")" = "$4" ] && [ "$(pl "Kernel.Add.$n.Enabled" "$cfg")" = "true" ] \
-    || die "verification of the new entry $2 failed"
+    || return 1
 }
 
 do_efi() {
@@ -589,42 +627,52 @@ do_efi() {
 
   step "Applying"
   local bk="$BACKUP/EFI/EFI-$(date +%Y%m%d-%H%M%S)"
-  mkdir -p "$BACKUP/EFI" && cp -R "$EFI_MP/EFI" "$bk" || die "backup failed"
+  mkdir -p "$BACKUP/EFI" && cp -R "$EFI_MP/EFI" "$bk" && [ -f "$bk/OC/config.plist" ] || die "backup failed"
   ok "EFI backed up to $bk"
+  # from here on every failure puts the Kryptonite kexts and config.plist back as they were and checks that
+  efi_restore() {
+    local k; rm -rf "$OC"/Kexts/Kryptonite*.kext || return 1
+    for k in "$bk"/OC/Kexts/Kryptonite*.kext; do [ -d "$k" ] || continue; cp -R "$k" "$OC/Kexts/" || return 1; done
+    cp "$bk/OC/config.plist" "$CFG" && cmp -s "$bk/OC/config.plist" "$CFG"
+  }
+  efi_fail() {
+    if efi_restore; then die "$1; the EFI was restored from the backup"
+    else die_bad "$1 – restoring the backup failed as well: do NOT reboot; copy $bk/OC/config.plist and $bk/OC/Kexts/Kryptonite* back to the EFI partition (or send the log)"; fi
+  }
   local idx others_before others_after n_before nk
   others_before=$(kext_paths "$CFG" | grep -v '^Kryptonite'); n_before=$(kext_count "$CFG"); nk=$(kry_entries "$CFG" | wc -l | tr -d ' ')
-  for idx in $(kry_entries "$CFG" | cut -d'|' -f1 | sort -rn); do plutil -remove "Kernel.Add.$idx" "$CFG" || die "could not remove entry $idx"; done
-  [ "$(kext_count "$CFG")" = $((n_before - nk)) ] || { cp "$bk/OC/config.plist" "$CFG"; die "entry count wrong after removing; restored the backup"; }
+  for idx in $(kry_entries "$CFG" | cut -d'|' -f1 | sort -rn); do plutil -remove "Kernel.Add.$idx" "$CFG" || efi_fail "could not remove entry $idx"; done
+  [ "$(kext_count "$CFG")" = $((n_before - nk)) ] || efi_fail "entry count wrong after removing"
   # Kandor's library-validation patch: remove any old copy, add it again if needed
   local p_others_before p_n_before p_nk
   p_others_before=$(patch_comments "$CFG" | cut -d'|' -f2- | grep -vE "^$LV_RE"); p_n_before=$(patch_count "$CFG")
   p_nk=$(patch_comments "$CFG" | cut -d'|' -f2- | grep -cE "^$LV_RE")
-  for idx in $(patch_comments "$CFG" | grep -E "^[0-9]*\|$LV_RE" | cut -d'|' -f1 | sort -rn); do plutil -remove "Kernel.Patch.$idx" "$CFG" || die "could not remove kernel patch $idx"; done
+  for idx in $(patch_comments "$CFG" | grep -E "^[0-9]*\|$LV_RE" | cut -d'|' -f1 | sort -rn); do plutil -remove "Kernel.Patch.$idx" "$CFG" || efi_fail "could not remove kernel patch $idx"; done
   if [ "$lv" = add ]; then
-    plutil -insert Kernel.Patch -xml "$LV_XML" -append "$CFG" || { cp "$bk/OC/config.plist" "$CFG"; die "plutil could not add the library-validation patch; restored the backup"; }
-    [ "$(pl "Kernel.Patch.$(( $(patch_count "$CFG") - 1 )).Base" "$CFG")" = _cs_require_lv ] || { cp "$bk/OC/config.plist" "$CFG"; die "library-validation patch not where expected; restored the backup"; }
+    plutil -insert Kernel.Patch -xml "$LV_XML" -append "$CFG" || efi_fail "plutil could not add the library-validation patch"
+    [ "$(pl "Kernel.Patch.$(( $(patch_count "$CFG") - 1 )).Base" "$CFG")" = _cs_require_lv ] || efi_fail "library-validation patch not where expected"
     if [ "$lvkept" = 1 ]; then ok "kept the library-validation patch for Tahoe"
     else ok "added kernel patch: library validation off on Tahoe (OCLP's \"Disable Library Validation Enforcement\")"; fi
   elif [ "$p_nk" != 0 ]; then info "removed Kandor's library-validation patch"; fi
   [ "$(patch_count "$CFG")" = $(( p_n_before - p_nk + $([ "$lv" = add ] && echo 1 || echo 0) )) ] \
     && [ "$(patch_comments "$CFG" | cut -d'|' -f2- | grep -vE "^$LV_RE")" = "$p_others_before" ] \
-    || { cp "$bk/OC/config.plist" "$CFG"; die "kernel patch list changed unexpectedly; restored the backup"; }
+    || efi_fail "kernel patch list changed unexpectedly"
   rm -rf "$OC"/Kexts/Kryptonite*.kext
   while IFS='|' read -r k mn mx c; do
-    cp -R "$KEXTS/$k" "$OC/Kexts/" || die "could not copy $k"
-    add_entry "$CFG" "$k" "$mn" "$mx" "$c"; ok "added $k ($mn – $mx)"
+    cp -R "$KEXTS/$k" "$OC/Kexts/" && [ -f "$OC/Kexts/$k/Contents/MacOS/Kryptonite" ] || efi_fail "could not copy $k"
+    add_entry "$CFG" "$k" "$mn" "$mx" "$c" || efi_fail "could not add the entry for $k"; ok "added $k ($mn – $mx)"
   done <<< "$plan"
   local ba a
   ba=$(pl "NVRAM.Add.$APPLE_GUID.boot-args" "$CFG")
   for a in $BOOTARGS_NEEDED; do case " $ba " in *" $a "*) ;; *) ba="$ba $a";; esac; done
   case " $ba " in *" amfi_get_out_of_my_way=1 "*) ba=$(echo " $ba " | sed 's/ amfi_get_out_of_my_way=1 / /'); info "removed amfi_get_out_of_my_way=1 (AMFI is on again)";; esac
   ba=$(echo "$ba" | sed 's/^ *//; s/ *$//')
-  plutil -replace "NVRAM.Add.$APPLE_GUID.boot-args" -string "$ba" "$CFG" || die "could not set boot-args"
+  plutil -replace "NVRAM.Add.$APPLE_GUID.boot-args" -string "$ba" "$CFG" || efi_fail "could not set boot-args"
   ok "boot-args: $ba"
-  plutil -lint "$CFG" >/dev/null || { cp "$bk/OC/config.plist" "$CFG"; die "config.plist failed validation; restored the backup"; }
+  plutil -lint "$CFG" >/dev/null || efi_fail "config.plist failed validation"
   others_after=$(kext_paths "$CFG" | grep -v '^Kryptonite')
-  [ "$others_before" = "$others_after" ] || { cp "$bk/OC/config.plist" "$CFG"; die "other kext entries changed unexpectedly; restored the backup"; }
-  [ "$(kext_count "$CFG")" = $((n_before - nk + 1)) ] || { cp "$bk/OC/config.plist" "$CFG"; die "entry count wrong; restored the backup"; }
+  [ "$others_before" = "$others_after" ] || efi_fail "other kext entries changed unexpectedly"
+  [ "$(kext_count "$CFG")" = $((n_before - nk + 1)) ] || efi_fail "entry count wrong"
   ok "config.plist is valid, $(kext_count "$CFG") kext entries, $(patch_count "$CFG") kernel patches, all other entries unchanged"
 
   step "Result"
@@ -659,14 +707,18 @@ mount_root() {
   local dev
   dev=$(diskutil info -plist / | plutil -extract DeviceIdentifier raw -o - - 2>/dev/null) || dev=""
   echo "$dev" | grep -qE '^disk[0-9]+s[0-9]+s[0-9]+$' && dev="${dev%s*}"   # booted snapshot -> its volume
-  if [ ! -f "$MNT/System/Library/CoreServices/SystemVersion.plist" ]; then
+  [ -n "$dev" ] || die "could not find the system volume of the running macOS"
+  if [ -f "$MNT/System/Library/CoreServices/SystemVersion.plist" ]; then
+    # already mounted (by an earlier run or OCLP): only use it if it is this Mac's system volume
+    local mdev; mdev=$(diskutil info -plist "$MNT" 2>/dev/null | plutil -extract DeviceIdentifier raw -o - - 2>/dev/null) || mdev=""
+    [ "$mdev" = "$dev" ] || die "$MNT holds /dev/${mdev:-?}, not the system volume /dev/$dev of the running macOS – run: sudo umount $MNT, then try again"
+  else
     mount -o nobrowse -t apfs "/dev/$dev" "$MNT" || die "could not mount the system volume /dev/$dev"
   fi
   ok "system volume /dev/$dev mounted at $MNT"
 }
 # ----------------------------------------------------------------- main ---
 need_root
-mkdir -p "$HERE/logs"
 # backup/ and logs/ are written as root (the EFI copy keeps the FAT volume's root-only modes, so Finder shows it as
 # empty and locked): hand both folders to the user who ran sudo when the script ends
 own_by_user() {
@@ -675,27 +727,32 @@ own_by_user() {
   chmod -R u+rwX "$HERE/backup" "$HERE/logs" 2>/dev/null
   return 0
 }
-trap own_by_user EXIT
+case "${1:-menu}" in status|credits) ;; *) trap own_by_user EXIT;; esac
 LOG=""
 # with_log NAME CMD...: runs an action that changes something in a subshell, with its screen output copied
 # (without colours) to logs/<date>-NAME.log; read-only actions write no log
 with_log() {
   local name="$1"; shift
+  local rc
+  mkdir -p "$HERE/logs"
   ( LOG="$HERE/logs/$(date +%Y%m%d-%H%M%S)-$name.log"
     banner | sed 's/\x1b\[[0-9;]*m//g' > "$LOG"
     exec > >(tee >(sed -l 's/\x1b\[[0-9;]*m//g' >> "$LOG")) 2>&1
-    "$@"
-    printf "\n  ${D}Log: %s${R}\n" "$LOG" )
+    "$@"; rc=$?
+    printf "\n  ${D}Log: %s${R}\n" "$LOG"; exit $rc )
+  rc=$?
   sleep 0.3   # let the log copy finish before the menu is printed again
+  return $rc
 }
 banner
+RC=0
 case "${1:-menu}" in
   credits) credits;;
   status) do_status;;
   log) do_log;;
-  efi) with_log efi do_efi;;
-  shim-patch) with_log shim-patch do_shim_patch;;
-  shim-patch-revert) with_log shim-patch-revert do_shim_patch_revert;;
+  efi) with_log efi do_efi; RC=$?;;
+  shim-patch) with_log shim-patch do_shim_patch; RC=$?;;
+  shim-patch-revert) with_log shim-patch-revert do_shim_patch_revert; RC=$?;;
   menu)
     while true; do
       printf "\n  ${B}0${R}  Show credits and licenses\n"
@@ -720,6 +777,7 @@ case "${1:-menu}" in
      printf "    log                 collect error logs\n"
      printf "    efi                 install / update Kandor in the EFI\n"
      printf "    shim-patch          macOS Tahoe: install the graphics fix (Vega and Navi)\n"
-     printf "    shim-patch-revert   macOS Tahoe: uninstall the graphics fix (Vega and Navi)\n";;
+     printf "    shim-patch-revert   macOS Tahoe: uninstall the graphics fix (Vega and Navi)\n"; RC=2;;
 esac
 printf "\n"
+exit "$RC"

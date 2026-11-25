@@ -68,7 +68,13 @@ cd ~/Downloads/Kandor
 sudo bash kandor.sh
 ```
 
-Then choose menu option **#3: "efi"**. It asks before it changes anything and keeps a backup of your EFI.
+Then choose menu option **#3: "efi"**. It asks before it changes anything and keeps a backup of your EFI. If a step
+fails, it puts the EFI back as it was.
+
+> [!NOTE]
+> "efi" also adds one kernel patch to OpenCore: OCLP's "Disable Library Validation Enforcement", so macOS Tahoe can
+> load Kandor's graphics fix. It is only active on Tahoe and stays in the EFI on the other macOS versions (all
+> macOS on the Mac start from the same EFI).
 
 ### 2. Shut down and attach the eGPU
 
@@ -108,7 +114,8 @@ Start the Kandor menu and choose menu option **#1: "status"**. Every line should
 | After … | do this |
 |---|---|
 | OCLP **Build and Install OpenCore** | menu option **#3: "efi"** again |
-| an OCLP root patch or a macOS update | nothing – except on Tahoe with a Vega or Navi card: menu option **#4: "shim-patch"** again before restarting. With a Navi card the eGPU shows no picture after a macOS update until that is done: use a monitor on the Mac's HDMI port |
+| a macOS update | on Monterey to Sequoia: nothing (OCLP offers its root patch again – install it as in step 3). On **Tahoe with a Vega or Navi card**: in OCLP **Post-Install Root Patch**, **don't restart**, menu option **#4: "shim-patch"**, then restart – as in steps 3 and 3a. With a Navi card the eGPU shows no picture until that is done: use a monitor on the Mac's HDMI port |
+| an OCLP root patch (again, or after an OCLP update) | nothing – except on **Tahoe with a Vega or Navi card**: menu option **#4: "shim-patch"** again before restarting |
 
 ## 📋 Menu
 

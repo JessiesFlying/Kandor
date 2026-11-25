@@ -23,7 +23,9 @@ The `backup/` folder is created locally by the script and must never be publishe
 Navi display fix on Tahoe; Navi user-client redirects on Tahoe; holding Apple's Navi driver off until OCLP's Navi
 patch on Tahoe) and JessiesFlying's four (Sonoma threshold; AMDSupport display fix in memory; X5000 user-client
 redirects for Tahoe; version). Binary md5
-`69990739914d3e69294d5253c7238caa` (built 23 Nov 2026); tests: added after the Vega and Navi retests.
+`69990739914d3e69294d5253c7238caa` (built 23 Nov 2026); tested with this binary: Radeon RX 6900 XT (Navi) on Tahoe 26.7.3 by ne1rom, including patch 9;
+Radeon RX Vega 56 on Tahoe 26.7.2 (install order efi → root patch → shim-patch → restart, Geekbench Metal 88,558)
+and on Monterey 12.7.6 by JessiesFlying.
 
 ## Credits
 - acidanthera: OpenCore, Lilu
