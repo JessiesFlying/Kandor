@@ -115,7 +115,7 @@ Start the Kandor menu and choose menu option **#1: "status"**. Every line should
 | | |
 |---|---|
 | **#0: "credits"** | who made what, license |
-| **#1: "status"** | checks everything, changes nothing |
+| **#1: "status"** | shows the system status, changes nothing |
 | **#2: "log"** | collects error logs when something goes wrong, changes nothing |
 | **#3: "efi"** | installs Kandor into OpenCore |
 | **#4: "shim-patch"** | macOS Tahoe: installs the graphics fix (Vega and Navi) |
@@ -143,14 +143,14 @@ Start the Kandor menu and choose menu option **#1: "status"**. Every line should
   nothing changes, hold the power button until the Mac turns off. Then plug the eGPU in, switch it on and start the
   Mac.
 - **No picture on the eGPU:** choose menu option **#1: "status"** – the lines marked ✗ or ! tell you what to do.
-- **Still stuck:** choose menu option **#2: "log"** and share the new folder in `logs` when you ask for help on the
+- **Still stuck:** choose menu option **#2: "log"** and send the file `kandor-log-<date>.zip` it creates in the Kandor folder when you ask for help on the
   [JessiesFlying Discord server](https://discord.gg/rAhpJNqaKS).
 
 Kandor creates the folders `backup` and `logs` next to `kandor.sh`. They stay on your Mac – don't share `backup`.
 
 ## ❤️ Credits
 
-Kryptonite by mayankk2308 and mac_editor (with patches by goalque and rgov) · Original concept, Kryptonite for
+Kryptonite by mayankk2308 and mac_editor (with patches by goalque and rgov) · Kryptonite for
 Sequoia and Tahoe and Navi support on Tahoe by ne1rom, with assistance from Claude (Anthropic) · Kandor by JessiesFlying, with assistance from Claude (Anthropic) ·
 OpenCore and Lilu by acidanthera · OpenCore Legacy Patcher by Dortania.
 

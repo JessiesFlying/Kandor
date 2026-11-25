@@ -61,15 +61,14 @@ banner() {
   printf "  ${B}Kandor %s${R}  ·  AMD eGPU for the Mac Pro (Late 2013)\n" "$KANDOR_VERSION"
   printf "  macOS Monterey – Tahoe with OpenCore Legacy Patcher\n"
   printf "  ${B}${CYN}%s${R}\n" "$rule"
-  [ "$(kernel_major)" = 25 ] && printf "  ${YEL}Tahoe with Vega or Navi:${R} menu 4 after OCLP's root patch, before restarting (README, step 3a)\n"
-  printf "  ${YEL}Supported for now:${R} MacPro6,1 only · ${B}AMD${R} eGPUs only (tested: RX Vega 56, RX 580, RX 6900 XT)\n"
-  printf "                     eGPU on a ${B}lower${R} Thunderbolt 2 port (the upper ports hang at boot)\n"
+  printf "  ${YEL}Supported setup:${R} MacPro6,1 · ${B}AMD${R} eGPUs only (see README for tested models)\n"
+  printf "                   eGPU on a ${B}lower${R} Thunderbolt 2 port (the upper ports hang at boot)\n"
   printf "  ${YEL}Cold boot only:${R} eGPU attached and powered on ${B}before${R} the Mac starts. Never power it on,\n"
   printf "                  plug it in or unplug it while the Mac boots or runs.\n\n"
   printf "  ${D}OpenCore & Lilu by acidanthera · OCLP by Dortania\n"
   printf "  Kryptonite (GPL-3.0) by mayankk2308 & mac_editor\n"
-  printf "  Original concept, Kryptonite fork for Sequoia/Tahoe and Navi support on Tahoe by ne1rom\n"
-  printf "  Ventura/Sonoma adaptation, AMD driver fix, Tahoe Vega support and Kandor by JessiesFlying${R}\n"
+  printf "  Kryptonite fork for Sequoia/Tahoe and Navi support on Tahoe by ne1rom\n"
+  printf "  Kandor, Ventura/Sonoma adaptation and Tahoe Vega support by JessiesFlying${R}\n"
 }
 
 credits() {
@@ -88,7 +87,7 @@ ${B}Credits${R}
   - goalque for: support for NVIDIA eGFX on macOS 10.13.4+
   - rgov for: Ti82 Thunderbolt patches - adapted for Lilu by mac_editor
 
-  ${B}Original concept and Kryptonite for macOS Sequoia and Tahoe${R}
+  ${B}Kryptonite for macOS Sequoia and Tahoe${R}
   - ne1rom, with assistance from Claude (Anthropic)
 
   ${B}Navi on macOS Tahoe${R}
@@ -99,12 +98,12 @@ ${B}Credits${R}
      * Navi support in this script (shim-patch for Vega and Navi without unplugging the eGPU,
        Navi checks in status)
 
-  ${B}Kryptonite for Ventura & Sonoma and Kandor${R} (macOS Monterey to Tahoe)
+  ${B}Kandor and Kryptonite for Ventura & Sonoma${R} (macOS Monterey to Tahoe)
   - JessiesFlying, with assistance from Claude (Anthropic), for:
+     * creating Kandor (this script and its documentation)
      * adapting Kryptonite for macOS Ventura & Sonoma (one build for Monterey to Tahoe)
      * fixing OpenCore Legacy Patcher's AMD graphics driver (AMDSupport) for eGPU display output
      * the Tahoe user-client redirects and the Vega Metal shim wrapper
-     * creating Kandor (this script and its documentation)
 
 ${B}Licenses${R}
   - OpenCore and Lilu: BSD-3-Clause. OCLP: BSD-4-Clause for its own files, its bundled
@@ -481,7 +480,10 @@ do_log() { # read-only: everything needed to diagnose the eGPU, on every macOS
   done
   touch "$ref"
   ls /Library/Logs/DiagnosticReports/*.panic /Library/Logs/DiagnosticReports/panic*.ips >/dev/null 2>&1 || ok "no kernel panic reports on this Mac"
+  local Z; Z="$HERE/kandor-$(basename "$O").zip"
+  ditto -c -k --keepParent "$O" "$Z" 2>/dev/null && ok "zipped for sharing: $(basename "$Z")"
   printf "\n  ${GRN}${B}Done.${R} Logs in %s\n" "$O"
+  [ -f "$Z" ] && printf "  To ask for help, send ${B}%s${R} (in the Kandor folder).\n" "$(basename "$Z")"
 }
 
 # ------------------------------------------------------------------ EFI ---
@@ -599,7 +601,7 @@ do_efi() {
   if [ "$lv" = add ]; then
     plutil -insert Kernel.Patch -xml "$LV_XML" -append "$CFG" || { cp "$bk/OC/config.plist" "$CFG"; die "plutil could not add the library-validation patch; restored the backup"; }
     [ "$(pl "Kernel.Patch.$(( $(patch_count "$CFG") - 1 )).Base" "$CFG")" = _cs_require_lv ] || { cp "$bk/OC/config.plist" "$CFG"; die "library-validation patch not where expected; restored the backup"; }
-    ok "added kernel patch: library validation off on Tahoe (OCLP's _cs_require_lv patch)"
+    ok "added kernel patch: library validation off on Tahoe (OCLP's \"Disable Library Validation Enforcement\")"
   elif [ "$p_nk" != 0 ]; then info "removed Kandor's library-validation patch"; fi
   [ "$(patch_count "$CFG")" = $(( p_n_before - p_nk + $([ "$lv" = add ] && echo 1 || echo 0) )) ] \
     && [ "$(patch_comments "$CFG" | cut -d'|' -f2- | grep -vE "^$LV_RE")" = "$p_others_before" ] \
@@ -633,9 +635,8 @@ do_efi() {
   # what comes next on this macOS
   if [ "$(kernel_major)" = 25 ]; then
     if [ -z "$(shim_targets)" ]; then
-      printf "  Next on Tahoe: shut down, attach the eGPU (Navi: also a monitor on the Mac's HDMI port – the Navi card shows\n"
-      printf "  no picture until the end of this), boot, OCLP → Post-Install Root Patch (it must offer \"AMD Vega\" or\n"
-      printf "  \"AMD Navi\"), don't restart yet: menu 4 (shim-patch), then restart.\n"
+      printf "  Next on Tahoe: shut down, attach the eGPU, boot, OCLP → Post-Install Root Patch (it must offer\n"
+      printf "  \"AMD Vega\" or \"AMD Navi\"), don't restart yet: menu 4 (shim-patch), then restart.\n"
     elif shims_all_current; then
       if ioreg -r -n display@0 -d 1 2>/dev/null | grep 'IOPCIDevice' | grep -qv ' inactive'; then
         printf "  Kandor's shim wrapper is already installed: restart (the eGPU stays attached).\n"
@@ -663,6 +664,15 @@ mount_root() {
 # ----------------------------------------------------------------- main ---
 need_root
 mkdir -p "$HERE/logs"
+# backup/ and logs/ are written as root (the EFI copy keeps the FAT volume's root-only modes, so Finder shows it as
+# empty and locked): hand both folders to the user who ran sudo when the script ends
+own_by_user() {
+  [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ] || return 0
+  chown -R "$SUDO_USER" "$HERE/backup" "$HERE/logs" "$HERE"/kandor-log-*.zip 2>/dev/null
+  chmod -R u+rwX "$HERE/backup" "$HERE/logs" 2>/dev/null
+  return 0
+}
+trap own_by_user EXIT
 LOG=""
 # with_log NAME CMD...: runs an action that changes something in a subshell, with its screen output copied
 # (without colours) to logs/<date>-NAME.log; read-only actions write no log
@@ -686,7 +696,7 @@ case "${1:-menu}" in
   menu)
     while true; do
       printf "\n  ${B}0${R}  Show credits and licenses\n"
-      printf "  ${B}1${R}  Show the status (checks everything, changes nothing)\n"
+      printf "  ${B}1${R}  Show system status (no changes)\n"
       printf "  ${B}2${R}  Collect error logs\n"
       printf "  ${B}3${R}  Install / update Kandor in the EFI\n"
       if [ "$(kernel_major)" = 25 ]; then
@@ -703,7 +713,7 @@ case "${1:-menu}" in
   *) printf "\n"; warn "unknown command: $1"
      printf "\n  usage: sudo bash %s [command]   (no command: menu)\n" "$0"
      printf "    credits             show credits and licenses\n"
-     printf "    status              show the status (checks everything, changes nothing)\n"
+     printf "    status              show system status (no changes)\n"
      printf "    log                 collect error logs\n"
      printf "    efi                 install / update Kandor in the EFI\n"
      printf "    shim-patch          macOS Tahoe: install the graphics fix (Vega and Navi)\n"
