@@ -197,7 +197,7 @@ do_status() {
   step "eGPU"
   local node dev name pci
   node=$(ioreg -r -n display@0 -d 1 -w0 -l 2>/dev/null)
-  dev=$(echo "$node" | grep -m1 '"device-id"' | grep -oE '<[0-9a-f]+>' | cut -c2-5)
+  dev=$(grep -m1 '"device-id"' <<< "$node" | grep -oE '<[0-9a-f]+>' | cut -c2-5)
   dev=$(echo "$dev" | sed -E 's/(..)(..)/\2\1/')
   case "$dev" in
     687f) name="Radeon RX Vega 56/64 (Vega 10)";;           6863|6868) name="Radeon Vega Frontier / Pro WX 9100 (Vega 10)";;
@@ -208,16 +208,16 @@ do_status() {
     73a5|73af|73ef) name="AMD GPU 1002:$dev (RX 6950 XT / 6900 XTXH / 6650 XT: not in Apple's drivers)";;
     "") name="";; *) name="AMD GPU 1002:$dev";;
   esac
-  local ven; ven=$(echo "$node" | grep -m1 '"vendor-id"' | grep -oE '<[0-9a-f]+>' | cut -c2-5)
+  local ven; ven=$(grep -m1 '"vendor-id"' <<< "$node" | grep -oE '<[0-9a-f]+>' | cut -c2-5)
   [ -n "$ven" ] && [ "$ven" != "0210" ] && bad "eGPU vendor is not AMD (vendor-id $ven): Kandor supports AMD eGPUs only"
   # unplugged or "Disconnect"ed while running: macOS keeps a dead display@0 (inactive, same device-id) until a restart
-  local gone=0; echo "$node" | grep -m1 -E '^\+-o display@0' | grep -q ' inactive' && gone=1
+  local gone=0; grep -m1 -E '^\+-o display@0' <<< "$node" | grep -q ' inactive' && gone=1
   if [ -z "$dev" ]; then bad "No eGPU found (display@0). Box powered? Bottom Thunderbolt port? Kryptonite loaded?"
   elif [ "$gone" = 1 ]; then
     bad "The eGPU was unplugged or disconnected while the Mac was running ($name). It can't come back until a restart:
     shut down, check that the eGPU is plugged in and on, then start the Mac."
   else
-    pci=$(echo "$node" | grep -m1 '"pcidebug"' | grep -oE '"[0-9]+:[0-9]+:[0-9]+' | tr -d '"')
+    pci=$(grep -m1 '"pcidebug"' <<< "$node" | grep -oE '"[0-9]+:[0-9]+:[0-9]+' | tr -d '"')
     ok "eGPU found: $name  (PCI $pci)"
     case "$(kernel_major)" in 22|23|24) is_navi "$dev" &&
         bad "Navi cards work on macOS Monterey and Tahoe only – not on Ventura, Sonoma or Sequoia (Apple's Navi drivers there need a newer CPU)";; esac
@@ -284,7 +284,7 @@ do_status() {
          if [ -z "$dev" ]; then info "user-client redirects: checked only with the eGPU attached at boot"
          else
            local ul; ul=$(/usr/bin/log show --last boot --style compact --predicate 'eventMessage CONTAINS "KANDOR ioconnect"' 2>/dev/null)
-           if ! echo "$ul" | grep -q "watch installed"; then
+           if ! grep -q "watch installed" <<< "$ul"; then
              if [ "$pend" = 1 ]; then info "user-client redirects: the shim wrapper did not run in this boot (a restart is pending)"
              else warn "user-client redirects: the shim wrapper did not run in this boot → menu 4 (shim-patch)"; fi
            else
@@ -574,7 +574,8 @@ do_efi() {
   # Tahoe's shim wrapper needs library validation off; the patch only acts on kernel 25 (Tahoe), AMFI stays on
   local lv=remove t
   if [ "$(kernel_major)" = 25 ]; then lv=add; info "Tahoe is running → library-validation patch for Tahoe (for the shim wrapper)"
-  elif patch_comments "$CFG" | grep -qE "^[0-9]*\|$LV_RE"; then lv=add; info "keep the library-validation patch for Tahoe (already in this EFI)"
+  elif patch_comments "$CFG" | grep -qE "^[0-9]*\|$LV_RE"; then lv=keep
+    info "keep the library-validation patch for Tahoe: this EFI also starts Tahoe, the patch only acts there"
   else
     for t in /Volumes/*/System/Library/CoreServices/SystemVersion.plist; do
       case "$(pl ProductVersion "$t")" in 26.*) lv=add; info "Tahoe found on $(echo "$t" | cut -d/ -f3) → library-validation patch for Tahoe";; esac
@@ -582,6 +583,7 @@ do_efi() {
     [ "$lv" = add ] || { ask "Is (or will) macOS Tahoe be installed on this Mac? (adds the library-validation patch, acts on Tahoe only)" && lv=add; }
   fi
   [ "$lv" = add ] && info "add kernel patch: Disable Library Validation Enforcement (OCLP's patch, Tahoe only)"
+  local lvkept=0; [ "$lv" = keep ] && { lv=add; lvkept=1; }
   info "backup of the whole EFI folder first → backup/EFI/"
   ask "Apply these changes to $CFG?" || die "cancelled by user"
 
@@ -601,7 +603,8 @@ do_efi() {
   if [ "$lv" = add ]; then
     plutil -insert Kernel.Patch -xml "$LV_XML" -append "$CFG" || { cp "$bk/OC/config.plist" "$CFG"; die "plutil could not add the library-validation patch; restored the backup"; }
     [ "$(pl "Kernel.Patch.$(( $(patch_count "$CFG") - 1 )).Base" "$CFG")" = _cs_require_lv ] || { cp "$bk/OC/config.plist" "$CFG"; die "library-validation patch not where expected; restored the backup"; }
-    ok "added kernel patch: library validation off on Tahoe (OCLP's \"Disable Library Validation Enforcement\")"
+    if [ "$lvkept" = 1 ]; then ok "kept the library-validation patch for Tahoe"
+    else ok "added kernel patch: library validation off on Tahoe (OCLP's \"Disable Library Validation Enforcement\")"; fi
   elif [ "$p_nk" != 0 ]; then info "removed Kandor's library-validation patch"; fi
   [ "$(patch_count "$CFG")" = $(( p_n_before - p_nk + $([ "$lv" = add ] && echo 1 || echo 0) )) ] \
     && [ "$(patch_comments "$CFG" | cut -d'|' -f2- | grep -vE "^$LV_RE")" = "$p_others_before" ] \
