@@ -382,7 +382,8 @@ shim_build() { # shim_build BUNDLE: builds the wrapper for one bundle (from the 
   local b="$1" rel src BD="$HERE/build/shim/$1"; rel=$(shim_rel "$b")
   src="$MNT/$rel/impostor.dylib"; shim_is_ours "$src" && src="$MNT/$rel/impostor_dortania.dylib"
   [ -f "$src" ] || die_umount "OCLP's impostor.dylib not found in $b"
-  rm -rf "$BD"; mkdir -p "$BD"; cp "$src" "$BD/impostor_dortania.dylib"
+  rm -rf "$BD" && mkdir -p "$BD" && cp "$src" "$BD/impostor_dortania.dylib" && cmp -s "$src" "$BD/impostor_dortania.dylib" \
+    || die_umount "could not stage OCLP's shim for $b in build/shim/"
   # its own install name must point to the renamed file, or the re-export would load the wrapper itself
   install_name_tool -id "/$rel/impostor_dortania.dylib" "$BD/impostor_dortania.dylib" 2>>"$LOG" || die_umount "install_name_tool failed ($b)"
   codesign -f -s - "$BD/impostor_dortania.dylib" >>"$LOG" 2>&1 && codesign -v "$BD/impostor_dortania.dylib" >>"$LOG" 2>&1 \
@@ -442,9 +443,9 @@ do_shim_patch() { # [after-efi]: called by efi, which has just installed Krypton
       || shim_fail "install failed ($b)"
     ok "$(shim_family "$b"): installed impostor.dylib (Kandor's wrapper) + impostor_dortania.dylib (OCLP's original)"
   done
+  shim_snapshot || shim_fail "bless failed" bless
   # earlier wrappers also wrote a file log; the current one only uses the unified log (menu 2 collects it)
   rm -f /Users/Shared/kandor-shim.log /Users/Shared/kry-shim.log 2>/dev/null
-  shim_snapshot || shim_fail "bless failed" bless
   if ioreg -r -n display@0 -d 1 2>/dev/null | grep 'IOPCIDevice' | grep -qv ' inactive'; then
     printf "\n  ${GRN}${B}Done.${R} Restart (the eGPU stays attached). Afterwards: menu 1 (status); if something is wrong: menu 2 (log).\n"
   else
@@ -513,9 +514,10 @@ do_log() { # read-only: everything needed to diagnose the eGPU, on every macOS
     # sandboxed processes (WindowServer) only reach the unified log
     /usr/bin/log show --last 2h --style compact --predicate 'eventMessage CONTAINS "KANDOR "' > "$O/kandor-unified.log" 2>/dev/null && ok "shim wrapper messages from the unified log"
   fi
-  # only graphics-related crash reports and kernel panics (the zip is shared publicly; other apps' reports stay private)
+  # only graphics-related crash reports and kernel panics (the zip is shared publicly; other apps' reports stay private);
+  # only the system folder (root-owned): user folders could redirect root through a link anywhere in the path
   local cfail=0
-  for f in /Library/Logs/DiagnosticReports/* /Users/*/Library/Logs/DiagnosticReports/*; do
+  for f in /Library/Logs/DiagnosticReports/*; do
     [ ! -L "$f" ] && [ -f "$f" ] && [ "$f" -nt "$ref" ] || continue   # never follow a link (user folders are not trusted)
     case "$(basename "$f")" in
       WindowServer*|displaypolicyd*|MTLCompilerService*|*AMD*|*Radeon*|*.panic|panic*|Kernel-*) ;;
@@ -665,7 +667,7 @@ do_efi() {
   [ "$(patch_count "$CFG")" = $(( p_n_before - p_nk + $([ "$lv" = add ] && echo 1 || echo 0) )) ] \
     && [ "$(patch_comments "$CFG" | cut -d'|' -f2- | grep -vE "^$LV_RE")" = "$p_others_before" ] \
     || efi_fail "kernel patch list changed unexpectedly"
-  rm -rf "$OC"/Kexts/Kryptonite*.kext
+  rm -rf "$OC"/Kexts/Kryptonite*.kext || efi_fail "could not remove the old Kryptonite kext"
   ls -d "$OC"/Kexts/Kryptonite*.kext >/dev/null 2>&1 && efi_fail "could not remove the old Kryptonite kext"
   while IFS='|' read -r k mn mx c; do
     cp -R "$KEXTS/$k" "$OC/Kexts/" && [ -f "$OC/Kexts/$k/Contents/MacOS/Kryptonite" ] || efi_fail "could not copy $k"
@@ -776,7 +778,7 @@ case "${1:-menu}" in
       printf "  ${B}q${R}  Quit\n\n"
       c=$(choose "Choose")
       case "$c" in
-        0) credits;; 1) do_status;; 2) ( do_log );; 3) with_log efi do_efi;; 4) with_log shim-patch do_shim_patch;; 5) with_log shim-patch-revert do_shim_patch_revert;;
+        0) credits;; 1) do_status;; 2) WROTE=1; ( do_log );; 3) with_log efi do_efi;; 4) with_log shim-patch do_shim_patch;; 5) with_log shim-patch-revert do_shim_patch_revert;;
         q|Q) break;; "") ;; *) warn "unknown choice";;
       esac
     done;;
