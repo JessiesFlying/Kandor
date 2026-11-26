@@ -1,4 +1,4 @@
-<p align="center"><img src="logo/kandor-logo.png" alt="Kandor logo" width="300"></p>
+<p align="center"><img src="logo/kandor-banner.png" alt="Kandor – eGPUs for the Mac Pro 2013, macOS Monterey to Tahoe" width="800"></p>
 
 # Kandor - a whole new world in the cylinder
 
@@ -62,7 +62,7 @@ On **Tahoe with a Vega or Navi card**, first install Apple's Command Line Tools:
 xcode-select --install
 ```
 
-Download **Kandor.zip** from the [latest release](https://github.com/JessiesFlying/Kandor/releases/latest) and unzip
+Download the **Kandor zip file** from the [latest release](https://github.com/JessiesFlying/Kandor/releases/latest) and unzip
 it (for example in Downloads). Open Terminal, go into the folder and start the Kandor menu:
 
 ```
