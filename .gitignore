@@ -8,3 +8,4 @@ AMDSupport*
 impostor*.dylib
 *.ips
 .DS_Store
+kandor-log-*.zip

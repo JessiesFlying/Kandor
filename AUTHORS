@@ -1,20 +1,25 @@
 # Who did which part (see the git history for details – merges are not squashed)
 
+acidanthera               OpenCore, Lilu (not included)
+Dortania                  OpenCore Legacy Patcher (not included)
+
 mayankk2308, mac_editor   Kryptonite (upstream), Thunderbolt eGFX patches, IOPCITunnelCompatible bypass
 goalque                   NVIDIA eGFX support (upstream Kryptonite)
 rgov                      Ti82 Thunderbolt patches (adapted for Lilu by mac_editor)
 
 ne1rom, with assistance from Claude (Anthropic)
-                          Kryptonite for macOS Sequoia and Tahoe (src/kandor-sequoia-24G720.patch,
-                          src/kandor-tahoe-25G241.patch), Metal shim wrapper for Navi and the
-                          Navi (RX 6900 XT) Tahoe port (to be contributed)
+                          Kryptonite for macOS Sequoia and Tahoe – the fork (July 2026) that Kandor's
+                          Kryptonite build starts from (src/kandor-sequoia-24G720.patch,
+                          src/kandor-tahoe-25G241.patch), Navi (RX 6900 XT) on Tahoe: AGDC fix for
+                          AMDRadeonX6000Framebuffer (src/kandor-navi-agdc.patch), user-client redirects
+                          for AMDRadeonX6000 (src/kandor-navi-selectors.patch), holding Apple's Navi
+                          driver off until OCLP's Navi patch (src/kandor-navi-hold.patch), Navi path in
+                          shim/kandor_shim.m, Navi support in kandor.sh (shim-patch for Vega and Navi
+                          without unplugging the eGPU, Navi checks in status)
 
 JessiesFlying, with assistance from Claude (Anthropic)
                           Kryptonite for Ventura & Sonoma (src/kandor-sonoma-threshold.patch),
                           AMDSupport AGDC fix as a Lilu patch (src/kandor-amdsupport-agdc.patch),
                           AMDRadeonX5000 user-client selector redirects (src/kandor-x5000-selectors.patch),
-                          version 1.2.0 (src/kandor-version-1.2.0.patch), Vega shim analysis and wrapper
+                          version patch (src/kandor-version-1.3.0.patch), Vega shim analysis and wrapper
                           (shim/kandor_shim.m), Kandor (kandor.sh, src/build-kext.sh, documentation)
-
-acidanthera               OpenCore, Lilu (not included)
-Dortania                  OpenCore Legacy Patcher (not included)

@@ -1,0 +1,141 @@
+Kandor - patch 9: hold Apple's own Navi driver off on Tahoe until OCLP's Navi patch is installed
+Apply after patches 1-8 (see README.md). Author: ne1rom, with assistance from Claude (Anthropic)
+SPDX-License-Identifier: GPL-3.0-only
+
+On Tahoe, before OCLP's Navi root patch, Apple's own Navi driver (AMDRadeonX6000Framebuffer 7.x) attaches to a
+Navi eGPU on Macs without AVX2; WindowServer then aborts in CoreDisplay_CreateDisplayForCGXDisplayDevice on every
+start, so no monitor (built-in GPU included) shows anything and OCLP's root patch can't be run from its window.
+While Apple's own framebuffer is loaded, the probe of every Navi controller class returns no match: the card stays on the PCI bus, OCLP detects it and offers "AMD Navi", and the
+Mac starts normally on its built-in GPUs. OCLP's Monterey framebuffer is never held: it is recognised by a symbol
+only it has (AmdDalHelper::setPowerAdjustment, resolved with solveSymbol like patches 5 and 8) or by the OCLP-only
+patterns of patch 7; either one is enough. Tahoe (kernel 25) and later, krygpu=AMD, CPUs without AVX2 only. Off
+with -krynonavihold.
+
+Tested on Tahoe 26.7.3 / OCLP 3.0.0-rc.5 with an RX 6900 XT (Navi 21), eGPU and a monitor on the Mac's HDMI port:
+- before OCLP's root patch, with it: no WindowServer restart, login window on HDMI, the eGPU on the bus without a
+  controller, OCLP offered "AMD Navi"; root patch from OCLP's window, kandor.sh shim-patch, restart: status all
+  green, Metal and OpenCL on the 6900;
+- control with -krynonavihold: Apple's AMDRadeonX6000_AmdRadeonControllerNavi21 attaches and WindowServer aborts
+  ~0.35 s after every start (SIGABRT, assert in CoreDisplay_CreateDisplayForCGXDisplayDevice); boot text only on HDMI;
+- with OCLP's framebuffer installed: nothing held, the eGPU works as before.
+
+diff --git a/Kryptonite/Kryptonite/kern_hooks.cpp b/Kryptonite/Kryptonite/kern_hooks.cpp
+index 934fe45..4581912 100644
+--- a/Kryptonite/Kryptonite/kern_hooks.cpp
++++ b/Kryptonite/Kryptonite/kern_hooks.cpp
+@@ -50,3 +50,10 @@ IOReturn FunctionHooks::accelSharedExternalMethod(IOUserClient *that, uint32_t s
+     }
+     return FunctionCast(accelSharedExternalMethod, orgAccelSharedExternalMethod)(that, selector, args, dispatch, target, reference);
+ }
++
++// Navi on Tahoe before OCLP's Navi patch (see Patches::holdNativeNavi): Apple's controller does not match, so the
++// card stays on the PCI bus without a driver. ne1rom, with assistance from Claude (Anthropic), GPL-3.0-only.
++IOService *FunctionHooks::naviHoldProbe(IOService *that, IOService *provider, SInt32 *score) {
++    SYSLOG(moduleName, "Apple's Navi driver held off (%s): install OCLP's Navi root patch", that && that->getMetaClass() ? that->getMetaClass()->getClassName() : "?");
++    return nullptr;
++}
+diff --git a/Kryptonite/Kryptonite/kern_hooks.hpp b/Kryptonite/Kryptonite/kern_hooks.hpp
+index 0b788c4..07d69f7 100644
+--- a/Kryptonite/Kryptonite/kern_hooks.hpp
++++ b/Kryptonite/Kryptonite/kern_hooks.hpp
+@@ -25,6 +25,9 @@ public:
+     static bool oldX6000SharedUserClient;   // the same for OCLP's old Navi kext AMDRadeonX6000.kext
+     static IOReturn accelSharedExternalMethod(IOUserClient *that, uint32_t selector, IOExternalMethodArguments *args,
+                                               IOExternalMethodDispatch *dispatch, OSObject *target, void *reference);
++
++    // Apple's own Navi controllers on Tahoe without AVX2 are held off until OCLP's Navi patch is installed
++    static IOService *naviHoldProbe(IOService *that, IOService *provider, SInt32 *score);
+     
+ };
+ 
+diff --git a/Kryptonite/Kryptonite/kern_patches.cpp b/Kryptonite/Kryptonite/kern_patches.cpp
+index c521d57..1779d20 100644
+--- a/Kryptonite/Kryptonite/kern_patches.cpp
++++ b/Kryptonite/Kryptonite/kern_patches.cpp
+@@ -10,6 +10,7 @@
+ #include "kern_patchapplicator.hpp"
+ #include "kern_compatibility.hpp"
+ #include "kern_hooks.hpp"
++#include <Headers/kern_cpu.hpp>
+ 
+ static PatchApplicator patchApplicator;
+ 
+@@ -212,6 +213,54 @@ void Patches::detectOldX6000(KernelPatcher &patcher, size_t index, mach_vm_addre
+     patcher.clearError();
+ }
+ 
++// Navi on Tahoe before OCLP's Navi root patch: on a Mac without AVX2, Apple's own Tahoe Navi driver attaches to the
++// eGPU, but its Metal driver needs AVX2, and WindowServer aborts in CoreDisplay_CreateDisplayForCGXDisplayDevice on
++// every start - no picture on any monitor, so OCLP's root patch can't be run from its window. While Apple's own
++// AMDRadeonX6000Framebuffer is loaded (no symbol and none of the patterns of OCLP's Monterey build), the probe of every Navi
++// controller returns no match: the card stays on the PCI bus (OCLP detects it and offers "AMD Navi"), the Mac
++// starts normally on its built-in GPUs. Once OCLP's Monterey framebuffer is installed, nothing is changed.
++// Tahoe (kernel 25) and later, krygpu=AMD, CPUs without AVX2 only. Off with -krynonavihold.
++// ne1rom, with assistance from Claude (Anthropic), GPL-3.0-only.
++void Patches::holdNativeNavi(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size) {
++    if (!NVRAMArgs::isAMD() || getKernelVersion() < KernelVersion::Tahoe || checkKernelArgument("-krynonavihold")) {
++        return;
++    }
++    uint32_t a = 0, b = 0;
++    if (CPUInfo::getCpuid(7, 0, &a, &b) && (b & (1U << 5))) {
++        SYSLOG(moduleName, "AMDRadeonX6000Framebuffer: CPU has AVX2, Apple's Navi driver left alone");
++        return;
++    }
++    // OCLP's Monterey framebuffer must never be held: two independent checks, either one is enough to leave it alone.
++    // 1) a symbol only the Monterey build has (resolved like the other symbol checks, also inside a kernel collection)
++    mach_vm_address_t oclpSymbol = patcher.solveSymbol(index, "__ZN27AMDRadeonX6000_AmdDalHelper18setPowerAdjustmentEj", address, size);
++    patcher.clearError();
++    if (oclpSymbol) {
++        SYSLOG(moduleName, "AMDRadeonX6000Framebuffer: OCLP's Navi build (symbol), no hold needed");
++        return;
++    }
++    // 2) the same OCLP-only patterns as in enlargeAGDCStructuresNavi (checked before that patch changes them)
++    const uint8_t oclp1[] = {0x48, 0x81, 0xfa, 0x04, 0x40, 0x00, 0x00, 0x75, 0x62};
++    const uint8_t oclp3[] = {0x48, 0x81, 0xfa, 0xcc, 0x3d, 0x00, 0x00, 0x75, 0x65};
++    size_t off = 0;
++    if (KernelPatcher::findPattern(oclp1, nullptr, sizeof(oclp1), reinterpret_cast<const void *>(address), size, &off) ||
++        KernelPatcher::findPattern(oclp3, nullptr, sizeof(oclp3), reinterpret_cast<const void *>(address), size, &off)) {
++        SYSLOG(moduleName, "AMDRadeonX6000Framebuffer: OCLP's Navi build, no hold needed");
++        return;
++    }
++    static const char *probes[] = {
++        "__ZN40AMDRadeonX6000_AmdRadeonControllerNavi105probeEP9IOServicePi",
++        "__ZN40AMDRadeonX6000_AmdRadeonControllerNavi125probeEP9IOServicePi",
++        "__ZN40AMDRadeonX6000_AmdRadeonControllerNavi145probeEP9IOServicePi",
++        "__ZN40AMDRadeonX6000_AmdRadeonControllerNavi215probeEP9IOServicePi",
++        "__ZN40AMDRadeonX6000_AmdRadeonControllerNavi235probeEP9IOServicePi",
++    };
++    for (size_t i = 0; i < arrsize(probes); i++) {
++        KernelPatcher::RouteRequest request(probes[i], FunctionHooks::naviHoldProbe);
++        patchApplicator.applyRoutingPatch(index, patcher, &request, address, size);
++    }
++    SYSLOG(moduleName, "AMDRadeonX6000Framebuffer: Apple's own Navi driver held off until OCLP's Navi patch is installed");
++}
++
+ void Patches::updateMuxControlNVRAMVar(KernelPatcher &patcher, KernelPatcher::KextInfo *kext) {
+     const uint8_t find[] = {0x46, 0x41, 0x34, 0x43, 0x45, 0x32, 0x38, 0x44, 0x2d, 0x42, 0x36, 0x32, 0x46, 0x2d,
+         0x34, 0x43, 0x39, 0x39, 0x2d, 0x39, 0x43, 0x43, 0x33, 0x2d, 0x36, 0x38, 0x31,
+diff --git a/Kryptonite/Kryptonite/kern_patches.hpp b/Kryptonite/Kryptonite/kern_patches.hpp
+index dfb16d0..4304af8 100644
+--- a/Kryptonite/Kryptonite/kern_patches.hpp
++++ b/Kryptonite/Kryptonite/kern_patches.hpp
+@@ -26,6 +26,7 @@ public:
+     static void routeAccelSharedExternalMethod(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size);
+     static void detectOldX5000(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size);
+     static void detectOldX6000(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size);
++    static void holdNativeNavi(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size);
+     static void routeThunderboltEnumeration(KernelPatcher &patcher, size_t *index, mach_vm_address_t *address, size_t *size);
+ };
+ 
+diff --git a/Kryptonite/Kryptonite/kern_patchset.cpp b/Kryptonite/Kryptonite/kern_patchset.cpp
+index 6b089cc..881b46d 100644
+--- a/Kryptonite/Kryptonite/kern_patchset.cpp
++++ b/Kryptonite/Kryptonite/kern_patchset.cpp
+@@ -62,6 +62,7 @@ void PatchSet::processKext(KernelPatcher& patcher, size_t index, mach_vm_address
+         }
+ 
+         if (!strcmp(kextList[i].id, kextList[8].id)) {
++            Patches::holdNativeNavi(patcher, index, address, size);   // before the AGDC patch changes the patterns
+             Patches::enlargeAGDCStructuresNavi(patcher, &kextList[i]);
+         }
+ 

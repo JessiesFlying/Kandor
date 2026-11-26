@@ -1,0 +1,115 @@
+Kandor - patch 7: the AGDC fix for Navi (AMDRadeonX6000Framebuffer) as a Lilu patch
+Apply after patches 1-6 (see README.md). Author: ne1rom, with assistance from Claude (Anthropic)
+SPDX-License-Identifier: GPL-3.0-only
+
+On Tahoe, OCLP installs the Monterey AMDRadeonX6000Framebuffer 4.8.101 for Navi on Macs without AVX2. Like
+AMDSupport 4.0.8, it accepts only the 16-entry AGDC structures, so displaypolicyd never brings a Navi eGPU
+display online. Four find/replace pairs, each matching exactly once in OCLP 3.0.0-rc.5's framebuffer
+(md5 1fe8bd73e886e669c3280be2ec6bc779) and zero times in Apple's own Tahoe framebuffer. Tahoe (kernel 25) and
+later only, krygpu=AMD; shares the -krynoagdc switch with patch 4.
+
+Tested as a Lilu patch on Tahoe 26.7.3 / OCLP 3.0.0-rc.5 with an RX 6900 XT (Navi 21), with a build that used a
+kernel 22+ gate (on Tahoe the code path is the same as with this kernel 25+ gate): with it displaypolicyd
+reports "Do online device ... completed" (4K@60); with -krynoagdc the eGPU displays stay dark and displaypolicyd
+reports "not completed ... err 3:3:0:0:0".
+
+diff --git a/Kryptonite/Kryptonite/kern_patches.cpp b/Kryptonite/Kryptonite/kern_patches.cpp
+index d8a95a5..8164038 100644
+--- a/Kryptonite/Kryptonite/kern_patches.cpp
++++ b/Kryptonite/Kryptonite/kern_patches.cpp
+@@ -135,6 +135,43 @@ void Patches::enlargeAGDCStructures(KernelPatcher &patcher, KernelPatcher::KextI
+     }
+ }
+ 
++// The same AGDC size change for Navi: on Tahoe, OCLP installs the Monterey AMDRadeonX6000Framebuffer 4.8.101,
++// which also accepts only the 16-entry structures (0x4004 / 0x3dcc). Four places: the scanout resource config
++// size and entry limit, and the size checks of test and commit configuration (the 16-entry limit there is not
++// checked by this driver). Tested as a Lilu patch on Tahoe 26.7.3 / OCLP 3.0.0-rc.5 with an RX 6900 XT (Navi 21).
++// Tahoe (kernel 25) and later only: OCLP installs this Monterey framebuffer for Navi only there, and Apple's own
++// framebuffers on Ventura-Sequoia were not checked. The patterns are absent from Apple's Tahoe framebuffer.
++// Shares the -krynoagdc switch with the AMDSupport fix.
++// ne1rom, with assistance from Claude (Anthropic), GPL-3.0-only.
++void Patches::enlargeAGDCStructuresNavi(KernelPatcher &patcher, KernelPatcher::KextInfo *kext) {
++    if (!NVRAMArgs::isAMD() || getKernelVersion() < KernelVersion::Tahoe || checkKernelArgument("-krynoagdc")) {
++        return;
++    }
++
++    // getScanoutResourceConfig: cmp rdx,0x4004 -> 0x8004 (followed by jne)
++    const uint8_t find1[] = {0x48, 0x81, 0xfa, 0x04, 0x40, 0x00, 0x00, 0x75, 0x62};
++    const uint8_t repl1[] = {0x48, 0x81, 0xfa, 0x04, 0x80, 0x00, 0x00, 0x75, 0x62};
++    // getScanoutResourceConfig: cmp ebx,0x10 -> 0x20 (entries <= 16 -> <= 32, followed by jbe)
++    const uint8_t find2[] = {0x83, 0xfb, 0x10, 0x0f, 0x86, 0xbc, 0x00, 0x00, 0x00};
++    const uint8_t repl2[] = {0x83, 0xfb, 0x20, 0x0f, 0x86, 0xbc, 0x00, 0x00, 0x00};
++    // testConfiguration: cmp rdx,0x3dcc -> 0x7b8c (followed by a short jne)
++    const uint8_t find3[] = {0x48, 0x81, 0xfa, 0xcc, 0x3d, 0x00, 0x00, 0x75, 0x65};
++    const uint8_t repl3[] = {0x48, 0x81, 0xfa, 0x8c, 0x7b, 0x00, 0x00, 0x75, 0x65};
++    // commitConfiguration: cmp rdx,0x3dcc -> 0x7b8c (followed by a near jne)
++    const uint8_t find4[] = {0x48, 0x81, 0xfa, 0xcc, 0x3d, 0x00, 0x00, 0x0f, 0x85, 0xa5, 0x00, 0x00, 0x00};
++    const uint8_t repl4[] = {0x48, 0x81, 0xfa, 0x8c, 0x7b, 0x00, 0x00, 0x0f, 0x85, 0xa5, 0x00, 0x00, 0x00};
++
++    KernelPatcher::LookupPatch patches[] = {
++        {kext, find1, repl1, sizeof(find1), 1},
++        {kext, find2, repl2, sizeof(find2), 1},
++        {kext, find3, repl3, sizeof(find3), 1},
++        {kext, find4, repl4, sizeof(find4), 1},
++    };
++    for (size_t i = 0; i < arrsize(patches); i++) {
++        patchApplicator.applyLookupPatch(patcher, &patches[i]);
++    }
++}
++
+ // User-client selector redirects for OCLP's old AMDRadeonX5000.kext on newer macOS (see kern_hooks.cpp).
+ // Kandor (JessiesFlying, with assistance from Claude (Anthropic)), GPL-3.0-only.
+ bool Patches::redirectsEnabled() {
+diff --git a/Kryptonite/Kryptonite/kern_patches.hpp b/Kryptonite/Kryptonite/kern_patches.hpp
+index 94b95b1..b144802 100644
+--- a/Kryptonite/Kryptonite/kern_patches.hpp
++++ b/Kryptonite/Kryptonite/kern_patches.hpp
+@@ -21,6 +21,7 @@ public:
+     static void bypassIOPCITunnelCompatible(KernelPatcher &patcher, KernelPatcher::KextInfo *kext);
+     static void updateMuxControlNVRAMVar(KernelPatcher &patcher, KernelPatcher::KextInfo *kext);
+     static void enlargeAGDCStructures(KernelPatcher &patcher, KernelPatcher::KextInfo *kext);
++    static void enlargeAGDCStructuresNavi(KernelPatcher &patcher, KernelPatcher::KextInfo *kext);
+     static bool redirectsEnabled();
+     static void routeAccelSharedExternalMethod(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size);
+     static void detectOldX5000(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size);
+diff --git a/Kryptonite/Kryptonite/kern_patchset.cpp b/Kryptonite/Kryptonite/kern_patchset.cpp
+index e0a5b56..0274eb4 100644
+--- a/Kryptonite/Kryptonite/kern_patchset.cpp
++++ b/Kryptonite/Kryptonite/kern_patchset.cpp
+@@ -60,6 +60,10 @@ void PatchSet::processKext(KernelPatcher& patcher, size_t index, mach_vm_address
+         if (!strcmp(kextList[i].id, kextList[7].id)) {
+             Patches::detectOldX5000(patcher, index, address, size);
+         }
++
++        if (!strcmp(kextList[i].id, kextList[8].id)) {
++            Patches::enlargeAGDCStructuresNavi(patcher, &kextList[i]);
++        }
+     }
+     
+     patcher.clearError();
+diff --git a/Kryptonite/Kryptonite/kern_targetkexts.hpp b/Kryptonite/Kryptonite/kern_targetkexts.hpp
+index 041b566..35464de 100644
+--- a/Kryptonite/Kryptonite/kern_targetkexts.hpp
++++ b/Kryptonite/Kryptonite/kern_targetkexts.hpp
+@@ -19,7 +19,8 @@ static const char* targetKexts[] = {
+     "/System/Library/Extensions/IOPCIFamily.kext/IOPCIFamily",
+     "/System/Library/Extensions/AMDSupport.kext/Contents/MacOS/AMDSupport",
+     "/System/Library/Extensions/IOAcceleratorFamily2.kext/Contents/MacOS/IOAcceleratorFamily2",
+-    "/System/Library/Extensions/AMDRadeonX5000.kext/Contents/MacOS/AMDRadeonX5000"
++    "/System/Library/Extensions/AMDRadeonX5000.kext/Contents/MacOS/AMDRadeonX5000",
++    "/System/Library/Extensions/AMDRadeonX6000Framebuffer.kext/Contents/MacOS/AMDRadeonX6000Framebuffer"
+ };
+ 
+ static KernelPatcher::KextInfo kextList[] {
+@@ -32,7 +33,9 @@ static KernelPatcher::KextInfo kextList[] {
+     {"com.apple.kext.AMDSupport", &targetKexts[5], 1, {true}, {}, KernelPatcher::KextInfo::Unloaded},
+     // user-client selector redirects for OCLP's old Vega kext (kernel 22+): the hook, and the kext it serves
+     {"com.apple.iokit.IOAcceleratorFamily2", &targetKexts[6], 1, {true}, {}, KernelPatcher::KextInfo::Unloaded},
+-    {"com.apple.kext.AMDRadeonX5000", &targetKexts[7], 1, {true}, {}, KernelPatcher::KextInfo::Unloaded}
++    {"com.apple.kext.AMDRadeonX5000", &targetKexts[7], 1, {true}, {}, KernelPatcher::KextInfo::Unloaded},
++    // OCLP's Monterey Navi framebuffer on Tahoe (non-AVX2 Macs): one path only
++    {"com.apple.kext.AMDRadeonX6000Framebuffer", &targetKexts[8], 1, {true}, {}, KernelPatcher::KextInfo::Unloaded}
+ };
+ 
+ static size_t kextListSize = arraysize(kextList);
