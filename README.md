@@ -158,7 +158,7 @@ Kandor creates the folders `backup` and `logs` next to `kandor.sh`. They stay on
 ## ❤️ Credits
 
 Kryptonite by mayankk2308 and mac_editor (with patches by goalque and rgov) · Kryptonite for
-Sequoia and Tahoe and Navi support on Tahoe by ne1rom, with assistance from Claude (Anthropic) · Kandor by JessiesFlying, with assistance from Claude (Anthropic) ·
+Sequoia and Tahoe (the fork Kandor builds on) and Navi support on Tahoe by ne1rom, with assistance from Claude (Anthropic) · Kandor by JessiesFlying, with assistance from Claude (Anthropic) ·
 OpenCore and Lilu by acidanthera · OpenCore Legacy Patcher by Dortania.
 
 Who did which part: [AUTHORS](AUTHORS) · licenses: [LICENSE-NOTES.md](LICENSE-NOTES.md) · Kandor is GPL-3.0

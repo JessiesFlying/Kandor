@@ -31,7 +31,8 @@ and on Monterey 12.7.6 by JessiesFlying.
 - acidanthera: OpenCore, Lilu
 - Dortania: OpenCore Legacy Patcher
 - mayankk2308 & mac_editor: Kryptonite; goalque: NVIDIA eGFX support; rgov: Ti82 patches (adapted by mac_editor)
-- ne1rom, with assistance from Claude (Anthropic): Kryptonite for macOS Sequoia and Tahoe; Navi on Tahoe (AGDC fix for
+- ne1rom, with assistance from Claude (Anthropic): Kryptonite for macOS Sequoia and Tahoe – the fork (July 2026) that
+  Kandor's Kryptonite build starts from; Navi on Tahoe (AGDC fix for
   the Navi framebuffer, user-client redirects for AMDRadeonX6000, holding Apple's Navi driver off until OCLP's Navi
   patch, Navi path in the shim wrapper, Navi support in kandor.sh)
 - JessiesFlying, with assistance from Claude (Anthropic): Kryptonite for Ventura & Sonoma (one build for Monterey to Tahoe), the AMDSupport fix for

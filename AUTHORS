@@ -8,7 +8,8 @@ goalque                   NVIDIA eGFX support (upstream Kryptonite)
 rgov                      Ti82 Thunderbolt patches (adapted for Lilu by mac_editor)
 
 ne1rom, with assistance from Claude (Anthropic)
-                          Kryptonite for macOS Sequoia and Tahoe (src/kandor-sequoia-24G720.patch,
+                          Kryptonite for macOS Sequoia and Tahoe – the fork (July 2026) that Kandor's
+                          Kryptonite build starts from (src/kandor-sequoia-24G720.patch,
                           src/kandor-tahoe-25G241.patch), Navi (RX 6900 XT) on Tahoe: AGDC fix for
                           AMDRadeonX6000Framebuffer (src/kandor-navi-agdc.patch), user-client redirects
                           for AMDRadeonX6000 (src/kandor-navi-selectors.patch), holding Apple's Navi

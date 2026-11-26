@@ -47,10 +47,14 @@ bad()   { printf "  ${RED}✗${R} %s\n" "$*"; }
 info()  { printf "  ${BLU}·${R} %s\n" "$*"; }
 step()  { printf "\n${B}${CYN}▸ %s${R}\n" "$*"; }
 line()  { printf "${D}%s${R}\n" "────────────────────────────────────────────────────────────────────"; }
-DIE_NOTE="Nothing else was changed."   # efi sets its own note before it hands over to the optional shim step
+DIE_NOTE_DEFAULT="Nothing else was changed."
+DIE_NOTE="$DIE_NOTE_DEFAULT"   # efi sets its own note before it hands over to the optional shim step
 die()   { printf "\n  ${RED}${B}Stopped:${R} %s\n  %s%s\n\n" "$*" "$DIE_NOTE" "${LOG:+ Log: $LOG}"; exit 1; }
-die_bad() { printf "\n  ${RED}${B}Stopped:${R} %s\n%s\n" "$*" "${LOG:+  Log: $LOG
-}"; exit 1; }   # when the rollback failed too
+die_bad() { # when the rollback failed too; repeats efi's note (the EFI update is kept) when the shim step after efi fails
+  local n=""; [ "$DIE_NOTE" = "$DIE_NOTE_DEFAULT" ] || n="  $DIE_NOTE
+"
+  printf "\n  ${RED}${B}Stopped:${R} %s\n%s%s\n" "$*" "$n" "${LOG:+  Log: $LOG
+}"; exit 1; }
 ask()   { # ask "question" -> 0 = yes
   local a; printf "\n  ${B}%s${R} [y/N] " "$1"; read -r a < /dev/tty; case "$a" in y|Y|yes|YES) return 0;; *) return 1;; esac; }
 choose() { # choose "prompt" [default] -> echo answer
@@ -69,7 +73,7 @@ banner() {
   printf "                  plug it in or unplug it while the Mac boots or runs.\n\n"
   printf "  ${D}OpenCore & Lilu by acidanthera · OCLP by Dortania\n"
   printf "  Kryptonite (GPL-3.0) by mayankk2308 & mac_editor\n"
-  printf "  Kryptonite fork for Sequoia/Tahoe and Navi support on Tahoe by ne1rom\n"
+  printf "  Kryptonite fork for Sequoia/Tahoe (Kandor's base) and Navi support on Tahoe by ne1rom\n"
   printf "  Kandor, Ventura/Sonoma adaptation and Tahoe Vega support by JessiesFlying${R}\n"
 }
 
@@ -89,7 +93,7 @@ ${B}Credits${R}
   - goalque for: support for NVIDIA eGFX on macOS 10.13.4+
   - rgov for: Ti82 Thunderbolt patches - adapted for Lilu by mac_editor
 
-  ${B}Kryptonite for macOS Sequoia and Tahoe${R}
+  ${B}Kryptonite for macOS Sequoia and Tahoe (the fork Kandor's Kryptonite is built on)${R}
   - ne1rom, with assistance from Claude (Anthropic)
 
   ${B}Navi on macOS Tahoe${R}
@@ -527,6 +531,7 @@ do_log() { # read-only: everything needed to diagnose the eGPU, on every macOS
   done
   [ "$cfail" = 0 ] && touch "$ref"
   ls /Library/Logs/DiagnosticReports/*.panic /Library/Logs/DiagnosticReports/panic*.ips >/dev/null 2>&1 || ok "no kernel panic reports on this Mac"
+  info "crash reports of apps in your user folder (~/Library/Logs/DiagnosticReports) are not included – attach them yourself if asked"
   local Z; Z="$HERE/kandor-$(basename "$O").zip"
   if ditto -c -k --norsrc --noextattr --keepParent "$O" "$Z" 2>/dev/null; then ok "zipped for sharing: $(basename "$Z")"
   else rm -f "$Z"; bad "could not create the zip – send the folder logs/$(basename "$O")/ instead"; return 1; fi
