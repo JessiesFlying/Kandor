@@ -15,7 +15,8 @@ For more info and help:
 
 ## 🧰 What you need
 
-- A **Mac Pro (Late 2013)** running macOS Monterey (12), Ventura (13), Sonoma (14), Sequoia (15) or Tahoe (26)
+- A **Mac Pro (Late 2013)** running macOS Monterey (12), Ventura (13), Sonoma (14), Sequoia (15) or Tahoe (26) –
+  which card works on which macOS: [macOS support](#-macos-support)
 - A monitor on the Mac Pro's own ports (HDMI, or a Thunderbolt port with a Mini DisplayPort cable). You need it until
   Kandor is set up, and it's the only screen that shows the OpenCore boot menu and the Apple logo: the eGPU monitors
   only turn on at the login screen.
@@ -38,8 +39,24 @@ For more info and help:
 | ❌ **Not supported** | RX 540 / 550 (most of them) · RX 580 2048SP · RX 590 GME · RX 6950 XT · RX 6900 XT "XTXH" models · RX 6650 XT · RX 6700 / 6750 XT · RX 6400 / 6500 XT · all RX 7000 and RX 9000 · NVIDIA · Intel Arc | Polaris · Navi (RDNA 2) · RDNA 3 and 4 · other brands |
 
 > [!NOTE]
-> **Navi cards: Monterey and Tahoe only.** On Ventura, Sonoma and Sequoia the card is detected but has no graphics
-> acceleration.
+> **Navi cards: Monterey and Tahoe only** – see [macOS support](#-macos-support).
+
+## 🍎 macOS support
+
+| | Monterey (12) | Ventura (13) | Sonoma (14) | Sequoia (15) | Tahoe (26) |
+|---|---|---|---|---|---|
+| **Polaris · Vega · older GCN** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Navi** (RX 5000 / 6000) | ✅ | ❌ | ❌ | ❌ | ✅ |
+
+- **OpenCore Legacy Patcher (OCLP):** Monterey needs only OpenCore (step 0). Ventura to Sequoia: OCLP's root patch
+  (step 3). Tahoe: OCLP **3.0.0-rc.5 or newer** – a pre-release, so download it from
+  [OCLP's releases page](https://github.com/dortania/OpenCore-Legacy-Patcher/releases), not "latest" – plus Kandor's
+  graphics fix (step 3a).
+- **Navi on Ventura, Sonoma and Sequoia is not supported.** OCLP 3.0 offers its "AMD Navi" root patch there too, but
+  Kandor's Navi fixes only act on Tahoe, and that combination is untested.
+- **Tested with this release:** RX 6900 XT on Tahoe 26.7.3 · RX Vega 56 on Tahoe 26.7.2 and Monterey 12.7.6.
+  Polaris and Vega on Ventura, Sonoma and Sequoia were tested with the previous build; Navi on Monterey with an
+  earlier Kryptonite build.
 
 ## 🚀 Setup
 
