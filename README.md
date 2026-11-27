@@ -45,18 +45,25 @@ For more info and help:
 
 | | Monterey (12) | Ventura (13) | Sonoma (14) | Sequoia (15) | Tahoe (26) |
 |---|---|---|---|---|---|
-| **Polaris · Vega · older GCN** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Vega** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Polaris** (RX 400 / 500) | ✅ | 🟢 | 🟢 | ✅ | 🟢 |
+| **older GCN** (R9 …) | 🟢 | 🟢 | 🟢 | 🟢 | 🟢 |
 | **Navi** (RX 5000 / 6000) | ✅ | ❌ | ❌ | ❌ | ✅ |
+
+✅ tested · 🟢 should work (same drivers), not tested yet · ❌ not supported
 
 - **OpenCore Legacy Patcher (OCLP):** Monterey needs only OpenCore (step 0). Ventura to Sequoia: OCLP's root patch
   (step 3). Tahoe: OCLP **3.0.0-rc.5 or newer** – a pre-release, so download it from
   [OCLP's releases page](https://github.com/dortania/OpenCore-Legacy-Patcher/releases), not "latest" – plus Kandor's
-  graphics fix (step 3a).
+  graphics fix (step 3a). Monterey to Sequoia were tested with OCLP 2.4.1 and 2.5.1.
+- **Polaris and older GCN** use the same AMD driver family as the Mac Pro's own FirePro GPUs: on Ventura and later
+  OCLP's root patch for them ("AMD Legacy GCN") is already installed, nothing extra is needed.
 - **Navi on Ventura, Sonoma and Sequoia is not supported.** OCLP 3.0 offers its "AMD Navi" root patch there too, but
   Kandor's Navi fixes only act on Tahoe, and that combination is untested.
-- **Tested with this release:** RX 6900 XT on Tahoe 26.7.3 · RX Vega 56 on Tahoe 26.7.2 and Monterey 12.7.6.
-  Polaris and Vega on Ventura, Sonoma and Sequoia were tested with the previous build; Navi on Monterey with an
-  earlier Kryptonite build.
+- **What was tested:** with this release (Kryptonite 1.3.0): RX 6900 XT on Tahoe 26.7.3 · RX Vega 56 on Tahoe
+  26.7.2 and Monterey 12.7.6. With the previous build 1.2.0: Vega on Sonoma and Sequoia (1.3.0 only adds changes
+  for Tahoe and Navi, so these results still apply). With earlier builds: Vega on Ventura (1.1.1), RX 580 on
+  Monterey and Sequoia, Navi on Monterey.
 
 ## 🚀 Setup
 
